@@ -1,2 +1,3 @@
 # driver
-Sun Devil Rocketry's drivers for peripheral communication.
+
+Sun Devil Rocketry's drivers for embedded peripheral communication.
