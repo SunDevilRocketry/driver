@@ -63,11 +63,47 @@ Global Variables
  Procedures 
 ------------------------------------------------------------------------------*/
 
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   * 
+* 		gps_init                                                               *
+*                                                                              *
+* DESCRIPTION:                                                                 * 
+* 		Set up configuration values for GPS.                                   *
+*                                                                              *
+*******************************************************************************/
+GPS_STATUS gps_init
+    (
+    void
+    ) 
+{
+/* local vars */
+GPS_STATUS gps_status;
+
+/* magic byte sequences for init*/
+#include "gps_init.inc"
+
+/* Set up UART baud */
+gps_status = gps_transmit
+    (
+    uart_baud_config, 
+    sizeof( uart_baud_config ), 
+    HAL_DEFAULT_TIMEOUT
+    ); /* must set GPS baud while on the default rate */
+
+gps_status |= HAL_UART_DeInit(&GPS_HUART); /* de-init the peripheral before reconfiguring */
+GPS_HUART.Init.BaudRate = 921600;
+gps_status |= HAL_UART_Init(&GPS_HUART); /* re-init the peripheral with the updated baud */
+
+return gps_status;
+
+} /* gps_init */
+
 
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   * 
-* 		gps_transmit                                                    *
+* 		gps_transmit                                                           *
 *                                                                              *
 * DESCRIPTION:                                                                 * 
 * 		transmits a specified number of bytes over USB                         *
