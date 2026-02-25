@@ -88,7 +88,7 @@ while( HAL_GetTick() <= GPS_STARTUP_DELAY ); /* busy-wait until recommended star
 /* Set up UART baud */
 gps_status = gps_transmit
     (
-    uart_baud_config, 
+    (void*)uart_baud_config, 
     sizeof( uart_baud_config ), 
     HAL_DEFAULT_TIMEOUT
     ); /* must set GPS baud while on the default rate */
