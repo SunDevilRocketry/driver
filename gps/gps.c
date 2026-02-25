@@ -69,7 +69,7 @@ Global Variables
 * 		gps_init                                                               *
 *                                                                              *
 * DESCRIPTION:                                                                 * 
-* 		Set up configuration values for GPS.                                   *
+* 		Set up configuration messages for GPS.                                 *
 *                                                                              *
 *******************************************************************************/
 GPS_STATUS gps_init
@@ -82,6 +82,8 @@ GPS_STATUS gps_status;
 
 /* magic byte sequences for init*/
 #include "gps_init.inc"
+
+while( HAL_GetTick() <= GPS_STARTUP_DELAY ); /* busy-wait until recommended startup delay */
 
 /* Set up UART baud */
 gps_status = gps_transmit
