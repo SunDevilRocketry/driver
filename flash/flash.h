@@ -38,81 +38,103 @@ Includes
 #include <stdbool.h>
 
 /* Project includes */
+#ifndef A0010
 #include "sensor.h"
+#endif
 
 
 /*------------------------------------------------------------------------------
  Macros 
 ------------------------------------------------------------------------------*/
 
-/* Flash subcommand bitmasks */
-#define FLASH_SUBCMD_OP_BITMASK     0b11100000 
-#define FLASH_NBYTES_BITMASK        0b00011111
+#ifndef A0010
+    /* Flash subcommand bitmasks */
+    #define FLASH_SUBCMD_OP_BITMASK     0b11100000 
+    #define FLASH_NBYTES_BITMASK        0b00011111
 
-/* Write protection ON/OFF States */
-#define FLASH_WP_READ_ONLY          true 
-#define FLASH_WP_WRITE_ENABLED      false 
+    /* Write protection ON/OFF States */
+    #define FLASH_WP_READ_ONLY          true 
+    #define FLASH_WP_WRITE_ENABLED      false 
 
-/* Flash Chip operation codes from datasheet */
-#define FLASH_OP_HW_READ	        0x03
-#define FLASH_OP_HW_READ_HS         0x0B
-#define FLASH_OP_HW_4K_ERASE        0x20
-#define FLASH_OP_HW_32K_ERASE       0x52
-#define FLASH_OP_HW_64K_ERASE       0xD8
-#define FLASH_OP_HW_FULL_ERASE      0x60
-#define FLASH_OP_HW_BYTE_PROGRAM    0x02
-#define FLASH_OP_HW_AAI_PROGRAM     0xAD
-#define FLASH_OP_HW_RDSR            0x05
-#define FLASH_OP_HW_EWSR            0x50
-#define FLASH_OP_HW_WRSR            0x01
-#define FLASH_OP_HW_WREN            0x06
-#define FLASH_OP_HW_WRDI            0x04
-#define FLASH_OP_HW_RDID            0x90
-#define FLASH_OP_HW_JEDEC_ID        0x9F
-#define FLASH_OP_HW_EBSY            0x70
-#define FLASH_OP_HW_DBSY            0x80
+    /* Flash Chip operation codes from datasheet */
+    #define FLASH_OP_HW_READ	        0x03
+    #define FLASH_OP_HW_READ_HS         0x0B
+    #define FLASH_OP_HW_4K_ERASE        0x20
+    #define FLASH_OP_HW_32K_ERASE       0x52
+    #define FLASH_OP_HW_64K_ERASE       0xD8
+    #define FLASH_OP_HW_FULL_ERASE      0x60
+    #define FLASH_OP_HW_BYTE_PROGRAM    0x02
+    #define FLASH_OP_HW_AAI_PROGRAM     0xAD
+    #define FLASH_OP_HW_RDSR            0x05
+    #define FLASH_OP_HW_EWSR            0x50
+    #define FLASH_OP_HW_WRSR            0x01
+    #define FLASH_OP_HW_WREN            0x06
+    #define FLASH_OP_HW_WRDI            0x04
+    #define FLASH_OP_HW_RDID            0x90
+    #define FLASH_OP_HW_JEDEC_ID        0x9F
+    #define FLASH_OP_HW_EBSY            0x70
+    #define FLASH_OP_HW_DBSY            0x80
 
-/* Maximum Flash address */
-#define FLASH_MAX_ADDR              0x07FFFF
+    /* Maximum Flash address */
+    #define FLASH_MAX_ADDR              0x07FFFF
 
-/* Reset state of flash register */
-#define FLASH_REG_RESET_VAL         0b00111000
+    /* Reset state of flash register */
+    #define FLASH_REG_RESET_VAL         0b00111000
 
-/* Timeouts */
-#ifndef SDR_DEBUG
-	#define HAL_FLASH_TIMEOUT       100
+    /* Timeouts */
+    #ifndef SDR_DEBUG
+        #define HAL_FLASH_TIMEOUT       100
+    #else
+        #define HAL_FLASH_TIMEOUT       0xFFFFFFFF
+    #endif
+
+    /* Flash busy/ready boolean codes */
+    #define FLASH_BUSY                  true
+    #define FLASH_READY                 false
+
+    /* Status register bitmasks */
+    #define FLASH_BUSY_BITMASK          0b00000001
+
+    /* Flash Block Addresses - 4Mbit of memory -> 512kB total
+    4kB min sector size -> Max 128 sectors  
+    32kB sector size -> 16 Pages 
+    64kB sector size -> 8 Pages*/
+    /* Use 32kB pages for up to 15 flight's recorded */
+    #define FLASH_BLOCK0_ADDR          0x000000
+    #define FLASH_BLOCK1_ADDR          0x008000
+    #define FLASH_BLOCK2_ADDR          0x010000
+    #define FLASH_BLOCK3_ADDR          0x018000
+    #define FLASH_BLOCK4_ADDR          0x020000
+    #define FLASH_BLOCK5_ADDR          0x028000
+    #define FLASH_BLOCK6_ADDR          0x030000
+    #define FLASH_BLOCK7_ADDR          0x038000
+    #define FLASH_BLOCK8_ADDR          0x040000
+    #define FLASH_BLOCK9_ADDR          0x048000
+    #define FLASH_BLOCK10_ADDR         0x050000
+    #define FLASH_BLOCK11_ADDR         0x058000
+    #define FLASH_BLOCK12_ADDR         0x060000
+    #define FLASH_BLOCK13_ADDR         0x068000
+    #define FLASH_BLOCK14_ADDR         0x070000
+    #define FLASH_BLOCK15_ADDR         0x078000
 #else
-	#define HAL_FLASH_TIMEOUT       0xFFFFFFFF
+    /* Config Commands */
+    #define FLASH_WRITE_ENABLE_CMD      0x06
+    #define FLASH_WRITE_DISABLE_CMD     0x04
+    #define FLASH_READ_STATUS_REG_CMD   0x05
+    #define FLASH_READ_CFG_REG_CMD      0x15
+    #define FLASH_WRITE_STATUS_CFG_REG_CMD 0x01
+    #define FLASH_ENABLE_QSPI_CMD       0x35 /* MUST be performed in SPI mode */
+    #define FLASH_DISABLE_QSPI_CMD      0xF5 /* MUST be performed in QSPI mode */
+    #define FLASH_ENABLE_4BYTE_ADDR_CMD 0xB7
+    #define FLASH_SET_BURST_LENGTH_CMD  0xC0
+    /* I/O Commands */
+    #define FLASH_READ_CMD              0xEC
+    #define FLASH_PAGE_WRITE_CMD        0x12
+    #define FLASH_CHIP_ERASE_CMD        0xC7
+    #define FLASH_SECTOR_ERASE_4KB_CMD  0x21
+    #define FLASH_BLOCK_ERASE_32KB_CMD  0x5C
+    #define FLASH_BLOCK_ERASE_64KB_CMD  0xDC
 #endif
-
-/* Flash busy/ready boolean codes */
-#define FLASH_BUSY                  true
-#define FLASH_READY                 false
-
-/* Status register bitmasks */
-#define FLASH_BUSY_BITMASK          0b00000001
-
-/* Flash Block Addresses - 4Mbit of memory -> 512kB total
-   4kB min sector size -> Max 128 sectors  
-   32kB sector size -> 16 Pages 
-   64kB sector size -> 8 Pages*/
-/* Use 32kB pages for up to 15 flight's recorded */
-#define FLASH_BLOCK0_ADDR          0x000000
-#define FLASH_BLOCK1_ADDR          0x008000
-#define FLASH_BLOCK2_ADDR          0x010000
-#define FLASH_BLOCK3_ADDR          0x018000
-#define FLASH_BLOCK4_ADDR          0x020000
-#define FLASH_BLOCK5_ADDR          0x028000
-#define FLASH_BLOCK6_ADDR          0x030000
-#define FLASH_BLOCK7_ADDR          0x038000
-#define FLASH_BLOCK8_ADDR          0x040000
-#define FLASH_BLOCK9_ADDR          0x048000
-#define FLASH_BLOCK10_ADDR         0x050000
-#define FLASH_BLOCK11_ADDR         0x058000
-#define FLASH_BLOCK12_ADDR         0x060000
-#define FLASH_BLOCK13_ADDR         0x068000
-#define FLASH_BLOCK14_ADDR         0x070000
-#define FLASH_BLOCK15_ADDR         0x078000
 
 
 /*------------------------------------------------------------------------------
