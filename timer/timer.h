@@ -32,7 +32,7 @@ extern "C" {
  Function Prototypes 
 ------------------------------------------------------------------------------*/
 
-uint32_t get_us_tick
+uint64_t get_us_tick
     (
     void
     );
@@ -45,6 +45,11 @@ void delay_ms
 void delay_us
     (
     uint32_t delay
+    );
+
+void micro_tim_IT_handler
+    (
+    void
     );
 
 #ifdef __cplusplus

@@ -30,11 +30,15 @@
 #include "main.h"
 #include "stm32h7xx_hal_tim.h"
 #include "sdr_pin_defines_A0002.h"
+#include "timer.h"
 
 
 /*------------------------------------------------------------------------------
  Global Variables  
 ------------------------------------------------------------------------------*/
+
+/* Increments every time the timer wraps around */
+uint8_t micro_tim_wraparounds = 0;
 
 
 /*------------------------------------------------------------------------------
@@ -46,36 +50,30 @@
  API Functions 
 ------------------------------------------------------------------------------*/
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		get_us_tick                                                            *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-* 		Getter for value in microsecond timer register                         *
-* NOTE:                                                                        *
-* 		This is a 32-bit timer that will wrap around after reaching            *
-* 		the uint_32 max in approximately 71.5 minutes                          *
-*                                                                              *
-*******************************************************************************/
-uint32_t get_us_tick
+/**
+ * @brief Getter for microsecond tick.
+ * 
+ * Returns the microsecond tick as a sum of the number of wraparounds times the period plus the
+ * current value in the counter register. This mitigates the fact that the timer itself 
+ * wraps around approximately every 71.5 minutes if configured to count all the way to the 
+ * uint32 max. This gives us over a million seconds or over 300 hours, which will probably be enough...
+ * 
+ * @return Microsecond tick.
+ */
+uint64_t get_us_tick
     (
     void
     )
 {
-return __HAL_TIM_GET_COUNTER(&MICRO_TIM);
+uint64_t tick = micro_tim_wraparounds * MICRO_TIM.Init.Period + __HAL_TIM_GET_COUNTER(&MICRO_TIM);
+return tick;
+
 } /* get_us_tick */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		delay_ms                                                               *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		Minimum delay in miliseconds                                           *
-*                                                                              *
-*******************************************************************************/
+/**
+ * @brief Minimum delay in miliseconds.
+ */
 void delay_ms
     (
     uint32_t delay
@@ -86,30 +84,33 @@ HAL_Delay(delay);
 } /* delay_ms */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		delay_us                                                               *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-* 		Minimum delay in microseconds                                          *
-*                                                                              *
-*******************************************************************************/
+/**
+ * @brief Minimum delay in microseconds.
+ */
 void delay_us
     (
     uint32_t delay
     )
 {
-uint32_t start = get_us_tick();
-uint32_t target = start + delay;
-if (target < start) /* timer will wrap around */
-    {
-    while ( get_us_tick() <= UINT32_MAX ) {}
-    }
+uint64_t start = get_us_tick();
+uint64_t target = start + delay;
 
 while ( get_us_tick() < target ) {}
 
 } /* delay_us */
+
+
+/**
+ * @brief Upon timer overflow, increments the wraparound counter.
+ */
+void micro_tim_IT_handler
+    (
+    void
+    )
+{
+micro_tim_wraparounds++;
+
+} /* micro_tim_IT_handler */
 
 /*******************************************************************************
 * END OF FILE                                                                  * 
