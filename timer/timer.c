@@ -1,23 +1,20 @@
-/*******************************************************************************
-*
-* FILE:
-* 		timer.c
-*
-* DESCRIPTION:
-* 		Timer delays and tick
-*
-* COPYRIGHT:                                                                   
-*       Copyright (c) 2025 Sun Devil Rocketry.                                 
-*       All rights reserved.                                                   
-*                                                                              
-*       This software is licensed under terms that can be found in the LICENSE 
-*       file in the root directory of this software component.                 
-*       If no LICENSE file comes with this software, it is covered under the   
-*       BSD-3-Clause.                                                          
-*                                                                              
-*       https://opensource.org/license/bsd-3-clause          
-*
-*******************************************************************************/
+
+/**
+ * @file timer.c
+ * 
+ * @brief Timer delays and tick
+ * 
+ * @copyright
+ *       Copyright (c) 2025 Sun Devil Rocketry.                                 
+ *       All rights reserved.                                                   
+ *                                                                              
+ *       This software is licensed under terms that can be found in the LICENSE 
+ *       file in the root directory of this software component.                 
+ *       If no LICENSE file comes with this software, it is covered under the   
+ *       BSD-3-Clause.                                                          
+ *                                                                              
+ *       https://opensource.org/license/bsd-3-clause        
+ */
 
 /*------------------------------------------------------------------------------
  Standard Includes                                                                     
@@ -51,14 +48,14 @@ uint8_t micro_tim_wraparounds = 0;
 ------------------------------------------------------------------------------*/
 
 /**
- * @brief Getter for microsecond tick.
+ * @brief Getter for microsecond tick
  * 
  * Returns the microsecond tick as a sum of the number of wraparounds times the period plus the
  * current value in the counter register. This mitigates the fact that the timer itself 
  * wraps around approximately every 71.5 minutes if configured to count all the way to the 
  * uint32 max. This gives us over a million seconds or over 300 hours, which will probably be enough...
  * 
- * @return Microsecond tick.
+ * @return Microsecond tick
  */
 uint64_t get_us_tick
     (
@@ -72,7 +69,7 @@ return tick;
 
 
 /**
- * @brief Minimum delay in miliseconds.
+ * @brief Minimum delay in miliseconds
  */
 void delay_ms
     (
@@ -85,7 +82,7 @@ HAL_Delay(delay);
 
 
 /**
- * @brief Minimum delay in microseconds.
+ * @brief Minimum delay in microseconds
  */
 void delay_us
     (
@@ -101,7 +98,7 @@ while ( get_us_tick() < target ) {}
 
 
 /**
- * @brief Upon timer overflow, increments the wraparound counter.
+ * @brief Upon timer overflow, increments the wraparound counter
  */
 void micro_tim_IT_handler
     (
