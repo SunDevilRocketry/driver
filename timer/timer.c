@@ -1,4 +1,3 @@
-
 /**
  * @file timer.c
  * 
@@ -70,6 +69,8 @@ return tick;
 
 /**
  * @brief Minimum delay in miliseconds
+ * 
+ * @param delay Delay in miliseconds
  */
 void delay_ms
     (
@@ -83,6 +84,8 @@ HAL_Delay(delay);
 
 /**
  * @brief Minimum delay in microseconds
+ * 
+ * @param delay Delay in microseconds
  */
 void delay_us
     (
