@@ -1,1 +1,3 @@
-This work, the Sun Devil Rocketry Test Submodule, uses the BSD-3-Clause. This software project does not use any dependencies, and all files in this project are covered under this license.
+This work, the Sun Devil Rocketry Driver Submodule, uses the BSD-3-Clause. The following dependencies are acknowledged:
+
+usb/USB_DEVICE: Copyright (c) 2026 STMicroelectronics. All rights reserved. BSD-3-Clause license. https://opensource.org/license/bsd-3-clause

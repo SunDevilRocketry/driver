@@ -23,8 +23,10 @@
 /*------------------------------------------------------------------------------
  MCU Pins 
 ------------------------------------------------------------------------------*/
-#if   defined( FLIGHT_COMPUTER      )
+#if   defined( A0002_REV2      		) /* FC rev2 */
 	#include "sdr_pin_defines_A0002.h"
+#elif defined( A0010 		   		) /* FC rev3 */
+	#include "sdr_pin_defines_A0010.h"
 #elif defined( ENGINE_CONTROLLER    )
 	#include "sdr_pin_defines_L0002.h"
 #elif defined( GROUND_STATION       )
@@ -139,7 +141,9 @@ void led_set_color
 {
 
 /* Reset LED */
-led_reset();
+#ifndef EMULATOR
+led_reset(); /* The call to reset every time makes the emulator GUI flash */
+#endif
 
 /* Check Colors */
 switch ( color )
