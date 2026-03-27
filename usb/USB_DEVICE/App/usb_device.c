@@ -55,6 +55,22 @@ USBD_HandleTypeDef hUsbDeviceHS;
  */
 /* USER CODE BEGIN 1 */
 
+void MX_USB_DEVICE_DeInit(void)
+{
+    // Stop the USB device
+    if (hUsbDeviceHS.pClassData != NULL) {
+        USBD_Stop(&hUsbDeviceHS);
+        
+        // Deinitialize the USB peripheral
+        if (hUsbDeviceHS.pData != NULL) {
+            HAL_PCD_DeInit(hUsbDeviceHS.pData);
+        }
+        
+        // Reset the device handle
+        memset(&hUsbDeviceHS, 0, sizeof(hUsbDeviceHS));
+    }
+}
+
 /* USER CODE END 1 */
 
 /**
@@ -80,10 +96,6 @@ void MX_USB_DEVICE_Init(void)
   {
     Error_Handler();
   }
-  if (USBD_Start(&hUsbDeviceHS) != USBD_OK)
-  {
-    Error_Handler();
-  }
 
   /* USER CODE BEGIN USB_DEVICE_Init_PostTreatment */
   HAL_PWREx_EnableUSBVoltageDetector();
@@ -98,4 +110,4 @@ void MX_USB_DEVICE_Init(void)
 /**
   * @}
   */
-
+https://github.com/SunDevilRocketry/driver/tree/driver%2Fusb

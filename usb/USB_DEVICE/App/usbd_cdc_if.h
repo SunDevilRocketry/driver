@@ -110,6 +110,37 @@ uint8_t CDC_Transmit_HS(uint8_t* Buf, uint16_t Len);
 
 /* USER CODE BEGIN EXPORTED_FUNCTIONS */
 
+/**
+  * @brief  Pulls one byte from the internal circular receive buffer.
+  * @retval int16_t: The byte value (0-255), or -1 if the buffer is empty.
+  */
+int16_t VCP_Read_Byte(void);
+
+/**
+  * @brief  Checks if the USB CDC interface is currently busy transmitting.
+  * @retval uint8_t: 1 if busy (or uninitialized), 0 if ready to transmit.
+  */
+uint8_t VCP_Is_Busy(void);
+
+/**
+  * @brief  Calculates the number of unread bytes in the circular buffer.
+  * @retval uint16_t: Number of available bytes.
+  */
+uint16_t VCP_Bytes_Available(void); 
+
+/**
+  * @brief  Resets the USB CDC transmit state to idle.
+  * @note   Safe to call - uses atomic write operation on ARM Cortex-M.
+  * @retval None
+  */
+void VCP_Force_Unlock(void);
+
+/**
+  * @brief  Clears the internal receive buffer by resetting head/tail pointers.
+  * @retval None
+  */
+void VCP_Clear_RxBuffer(void);
+
 /* USER CODE END EXPORTED_FUNCTIONS */
 
 /**
@@ -129,4 +160,5 @@ uint8_t CDC_Transmit_HS(uint8_t* Buf, uint16_t Len);
 #endif
 
 #endif /* __USBD_CDC_IF_H__ */
+
 

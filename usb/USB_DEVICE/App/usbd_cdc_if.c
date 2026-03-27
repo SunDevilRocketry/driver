@@ -31,7 +31,10 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-
+#define USB_RX_BUF_SIZE 2048
+static uint8_t  USB_Internal_RxBuffer[USB_RX_BUF_SIZE];
+static uint32_t USB_Internal_RxHead = 0;
+static uint32_t USB_Internal_RxTail = 0;
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -264,6 +267,19 @@ static int8_t CDC_Control_HS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_HS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 11 */
+  // Copy incoming data into circular buffer
+  for (uint32_t i = 0; i < *Len; i++) {
+      uint32_t next_head = (USB_Internal_RxHead + 1) % USB_RX_BUF_SIZE;
+        
+      USB_Internal_RxBuffer[USB_Internal_RxHead] = Buf[i];
+      USB_Internal_RxHead = next_head;
+      if (next_head == USB_Internal_RxTail) {
+        // Override oldest, advance tail too
+          USB_Internal_RxTail = (USB_Internal_RxTail + 1) % USB_RX_BUF_SIZE;
+      }
+  }
+
+  // Tell the USB hardware we are ready for the next packet
   USBD_CDC_SetRxBuffer(&hUsbDeviceHS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceHS);
   return (USBD_OK);
@@ -316,6 +332,71 @@ static int8_t CDC_TransmitCplt_HS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
 
+
+int16_t VCP_Read_Byte(void) 
+{
+    if (USB_Internal_RxHead == USB_Internal_RxTail) {
+        return -1; // Buffer is empty
+    }
+    
+    // 1. Grab the 'oldest' byte currently in the tank
+    // 2. Move the 'Tail' forward by one, but WRAP it back to 0 
+    // if it hits the end of the array.
+    
+    uint8_t b = USB_Internal_RxBuffer[USB_Internal_RxTail]; 
+    USB_Internal_RxTail = (USB_Internal_RxTail + 1) % USB_RX_BUF_SIZE;
+    return (int16_t)b;
+}
+
+uint8_t VCP_Is_Busy(void) 
+{
+    /* In case some idiot tries to usb transmit w/o initialization */
+    if (hUsbDeviceHS.pClassData == NULL) {
+        return 1; 
+    }
+    
+    USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceHS.pClassData;
+    return (hcdc->TxState != 0) ? 1 : 0;
+}
+
+uint16_t VCP_Bytes_Available(void) 
+{
+    if (USB_Internal_RxHead >= USB_Internal_RxTail) {
+        return (USB_Internal_RxHead - USB_Internal_RxTail);
+    } else {
+        return (USB_RX_BUF_SIZE - USB_Internal_RxTail + USB_Internal_RxHead);
+    }
+}
+
+void VCP_Force_Unlock(void)
+{
+    if (hUsbDeviceHS.pClassData != NULL) {
+        USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceHS.pClassData;
+        
+         
+        /* Writing a single byte/word is atomic on Cortex-M.
+         * No interupt disabled needed I believe b/c
+         * missed status update corrected on nxt trans attempt.
+         */
+        hcdc->TxState = 0;
+
+        // Worst case, use the following:
+//        uint32_t primask = __get_PRIMASK();  // Save current state
+//        __disable_irq();                      // Brief
+//        hcdc->TxState = 0;
+//        __set_PRIMASK(primask);               // Restore previous state
+    }
+
+}
+
+void VCP_Clear_RxBuffer(void)
+{
+    __disable_irq();  // Brief critical section for pointer consistency
+    USB_Internal_RxHead = 0;
+    USB_Internal_RxTail = 0;
+    __enable_irq();
+}
+
 /* USER CODE END PRIVATE_FUNCTIONS_IMPLEMENTATION */
 
 /**
@@ -325,3 +406,4 @@ static int8_t CDC_TransmitCplt_HS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 /**
   * @}
   */
+
