@@ -23,7 +23,7 @@ To function correctly, the following hardware configurations are assumed:
     - `USB_DEVICE` Middleware set to **Communication Device Class (CDC)**.
     - **Clock**: The USB clock must be exactly **48 MHz**.
     - **VBUS Sensing**: Handled manually via the `USB_DETECT` pin (typically PA10).
-    - **USB_DETECT**: Configured as a **GPIO Input**. It is highly recommended to have an **Internal Pull-Down** enabled to prevent floating signal noise when unplugged.
+    - **USB_DETECT**: Configured as a **GPIO Input**. It is highly recommended to have an **Internal Pull-Down** enabled to prevent floating signal when unplugged.
 - **For Legacy (UART)**:
     - Standard UART TX/RX pins configured.
     - **Baud Rate**: Typically 115200.
@@ -55,6 +55,8 @@ void usb_poll_connection(void);
 ```
 **Note:** This must be called periodically in the main loop. It monitors the physical VBUS connection (`USB_DETECT`), starting or stopping the USB device stack if the cable is hot-swapped.
 
+> **Integration note:** `usb_poll_connection()` includes an internal guard that returns if the USB middleware has not yet been initialized (`pClassData == NULL`), hence may be called before `usb_int()` is completed if so desired. UART mode does not use this.
+
 #### Primary Communication (Blocking)
 These functions block execution until the operation is complete or the timeout is reached.
 ```c
@@ -67,16 +69,21 @@ USB_STATUS usb_receive(uint8_t* data, uint16_t size, uint32_t timeout_ms);
 | `usb_transmit` | Sends data; waits until the hardware finishes pushing the data or timeout. |
 | `usb_receive` | Polls the internal buffer until *exactly* the requested number of bytes are gathered. |
 
-#### Helpers
+#### Utility
 ```c
-uint8_t usb_data_available(void);
-bool    usb_detect(void);
+uint8_t    usb_data_available(void);
+bool       usb_detect(void);
+USB_STATUS usb_flush(bool flush_tx);
+USB_STATUS usb_deinit(void);
 ```
 | Function | Description |
 | :--- | :--- |
-| `usb_data_available` | Returns 1 if there is unread data waiting in the internal circular buffer. |
-| `usb_detect` | Returns true if VBUS is physically detected (cable is plugged in). |
+| `usb_data_available` | Returns 1 if there is unread data waiting in the internal circular buffer, 0 if empty. |
+| `usb_detect` | Returns true if VBUS is physically detected (cable plugged in) via the `USB_DETECT` GPIO. Only available when `USE_USB_CDC_FS` or certain legacy board defines are set. |
+| `usb_flush` | Discards all pending bytes in the receive buffer. If `flush_tx` is true, also blocks until any in-progress transmission completes. |
+| `usb_deinit` | Stops the USB device stack and releases hardware resources. For legacy UART mode, aborts any pending transfer and releases the handle. |
 
+> **`usb_detect` availability:** This function is only compiled in when `USE_USB_CDC_FS` or certain legacy board defines are set (`A0002_REV2`, `FLIGHT_COMPUTER_LITE`, `L0002_REV5`, `L0005_REV3`). It is **not available** in the base legacy UART path. Calling it on an unsupported configuration will result in a linker error.
 ---
 
 ### Status Codes (`USB_STATUS`)
@@ -130,3 +137,4 @@ The core of making the asynchronous ST USB Middleware behave as a blocking drive
 
 - **Circular Buffer**: Located in `usbd_cdc_if.c`, this 2048-byte buffer captures all incoming data from the `CDC_Receive_HS` interrupt, allowing the main loop to read it at its own pace.
 - **Deadlock Prevention**: If a transmission is interrupted by a physical cable disconnect, the driver utilizes `VCP_Force_Unlock()` to reset the `TxState` of the USB peripheral, preventing the firmware from hanging on the next attempt.
+- **Hot-Swap**: `usb_poll_connection()` tracks VBUS transitions via the `USB_DETECT` GPIO. On connect it calls `USBD_Start()`; on disconnect it calls `USBD_Stop()` and clears any TX lock. The USB middleware is initialized once at boot by `usb_init()` and left running (physical connection/disconnecting handled dynamically)

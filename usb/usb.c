@@ -84,7 +84,9 @@ USB_STATUS usb_init(void)
 
 void usb_poll_connection(void) 
 {
-    static uint8_t previous_vbus_state = 2; // 2 = uninitialized
+    if (hUsbDeviceHS.pClassData == NULL) return; // Not yet initialized
+
+    static uint8_t previous_vbus_state = 2;
     uint8_t current_vbus_state = IS_USB_CONNECTED() ? 1 : 0;
 
     // Handle state transitions
@@ -189,13 +191,11 @@ USB_STATUS usb_deinit(void)
     if (hUsbDeviceHS.pClassData != NULL) {
         // Force unlock to clear any stuck transmission
         VCP_Force_Unlock();
-        
-        // Call the deinit function
-        MX_USB_DEVICE_DeInit();
-
+        // Call the deinit action
+        USBD_Stop(&hUsbDeviceHS);
+        USBD_DeInit(&hUsbDeviceHS);
         // Clear receive buffer
         VCP_Clear_RxBuffer();
-        
         // Wait for VBUS to discharge
         HAL_Delay(USB_VBUS_DISCHARGE_MS);
     }

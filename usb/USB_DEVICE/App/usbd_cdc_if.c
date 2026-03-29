@@ -271,12 +271,14 @@ static int8_t CDC_Receive_HS(uint8_t* Buf, uint32_t *Len)
   for (uint32_t i = 0; i < *Len; i++) {
       uint32_t next_head = (USB_Internal_RxHead + 1) % USB_RX_BUF_SIZE;
         
-      USB_Internal_RxBuffer[USB_Internal_RxHead] = Buf[i];
-      USB_Internal_RxHead = next_head;
       if (next_head == USB_Internal_RxTail) {
         // Override oldest, advance tail too
           USB_Internal_RxTail = (USB_Internal_RxTail + 1) % USB_RX_BUF_SIZE;
       }
+
+      USB_Internal_RxBuffer[USB_Internal_RxHead] = Buf[i];
+      USB_Internal_RxHead = next_head;
+      
   }
 
   // Tell the USB hardware we are ready for the next packet
