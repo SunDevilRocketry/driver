@@ -73,7 +73,7 @@ extern "C" {
 /* Public function prototypes ------------------------------------------------*/
  
 HAL_StatusTypeDef onboard_flash_write_addr(uint32_t dst_addr,
-                                            uint8_t* data,
+                                            void* data,
                                             uint32_t len);
  
 #ifdef __cplusplus

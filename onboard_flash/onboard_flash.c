@@ -79,7 +79,7 @@ __attribute__((section(".RamFunc"), noinline))
 HAL_StatusTypeDef onboard_flash_write_addr
     (
     uint32_t dst_addr,
-    uint8_t* data,
+    void* data,
     uint32_t len
     )
 {
@@ -88,11 +88,14 @@ uint32_t          offset;
 uint32_t          word_addr;
  
 /* Check preconditions */
+if ( data == NULL )
+    {
+    return HAL_ERROR;
+    }
 if ( len % ONBOARD_FLASH_WORD_SIZE != 0 )   /* must be aligned to flashword  */
     {
     return HAL_ERROR;
     }
- 
 if ( dst_addr % ONBOARD_FLASH_WORD_SIZE != 0 )  /* dst must be flashword-aligned */
     {
     return HAL_ERROR;
