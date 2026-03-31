@@ -24,6 +24,7 @@
 #ifndef IMU_H
 #define IMU_H
 
+#include <stdbool.h>
 #include "stm32h7xx_hal.h"
 
 #ifdef __cplusplus
