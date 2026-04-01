@@ -29,7 +29,7 @@
  
 #include "main.h"
 #include "onboard_flash.h"
-#include "common.h"
+#include "math_sdr.h"
 #include "error_sdr.h"
  
 /* Compiler Protection -------------------------------------------------------*/
