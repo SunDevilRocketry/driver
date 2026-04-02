@@ -158,10 +158,11 @@ typedef struct LORA_PRESET {
     uint8_t lora_spread; /* SF 6 - 12 supported. Validate the range. */
     uint8_t lora_bandwidth; /* enum -- spec defined in LORA_BANDWIDTH. Packed to one byte. */
     uint8_t lora_ecr; /* error coding options are 4:5, 4:6, 4:7, and 4:8 */
-    bool    high_power_mode; /* true: +20 dBm boost */
+    uint8_t    high_power_mode; /* true: +20 dBm boost */
     uint32_t lora_frequency; /* frequency in kHz */
     /* omitted: chipmode, header mode (defined by fw) */
 } LORA_PRESET;
+_Static_assert( sizeof( LORA_PRESET ) == 8, "LORA PRESET SIZE MISMATCH." );
 
 typedef enum LORA_SUBCMD_CODES {
     LORA_PRESET_UPLOAD = 0x01,

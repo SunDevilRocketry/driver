@@ -157,7 +157,7 @@ switch (subcommand_code)
         uint8_t data_receive_buffer[sizeof( LORA_PRESET )];
         if (usb_receive( data_receive_buffer,
                                 sizeof( LORA_PRESET ),
-                                HAL_DEFAULT_TIMEOUT ))
+                                10 * HAL_DEFAULT_TIMEOUT ) == USB_OK)
             {
             /* Copy received data into preset data */
             memcpy(lora_preset_buf, data_receive_buffer, sizeof( LORA_PRESET ) );
@@ -175,7 +175,7 @@ switch (subcommand_code)
     case LORA_PRESET_DOWNLOAD:
         {
         /* tx straight from buffer (usb transmit does not modify the buffer) */
-        if( usb_transmit( lora_preset_buf, sizeof( LORA_PRESET ), HAL_DEFAULT_TIMEOUT ) )
+        if( usb_transmit( lora_preset_buf, sizeof( LORA_PRESET ), 10 * HAL_DEFAULT_TIMEOUT ) )
             {
             return LORA_OK;
             }
