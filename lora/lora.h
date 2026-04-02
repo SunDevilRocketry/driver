@@ -14,6 +14,8 @@
 
 /* Standard includes */
 #include <stdint.h>
+#include <stdbool.h>
+#include <assert.h>
 
 #define LORA_TIMEOUT                2000
 
@@ -41,7 +43,8 @@ typedef enum LORA_STATUS {
    LORA_TIMEOUT_FAIL,
    LORA_BUFFER_UNDERSIZED,
    LORA_READY,
-   LORA_WAITING
+   LORA_WAITING,
+   LORA_USING_DEFAULTS
 } LORA_STATUS;
 
 /* Radio register addresses from datasheet (https://www.mouser.com/datasheet/2/975/1463993415RFM95_96_97_98W-1858106.pdf)
@@ -138,7 +141,7 @@ typedef enum LORA_PA_SELECT {
    LORA_PA_BOOST = 0x01
 } LORA_PA_SELECT;
 
-/* LORA CONFIG SETTINGS */
+/* LORA CONFIG SETTINGS -- arg for lora_init() */
 typedef struct _LORA_CONFIG {
    LORA_CHIPMODE lora_mode; // Current LORA Chipmode
    LORA_SPREADING_FACTOR lora_spread; // LoRa Spread factor
@@ -150,6 +153,23 @@ typedef struct _LORA_CONFIG {
    // To convert to internal chip unit, use the formula (2^19 * x)/(32 * 10^3)
 } LORA_CONFIG;
 
+/* LORA PRESET SETTINGS - subset of configs, used during runtime configuration */
+typedef struct LORA_PRESET {
+    uint8_t lora_spread; /* SF 6 - 12 supported. Validate the range. */
+    uint8_t lora_bandwidth; /* enum -- spec defined in LORA_BANDWIDTH. Packed to one byte. */
+    uint8_t lora_ecr; /* error coding options are 4:5, 4:6, 4:7, and 4:8 */
+    bool    high_power_mode; /* true: +20 dBm boost */
+    uint32_t lora_frequency; /* frequency in kHz */
+    /* omitted: chipmode, header mode (defined by fw) */
+} LORA_PRESET;
+
+typedef enum LORA_SUBCMD_CODES {
+    LORA_PRESET_UPLOAD = 0x01,
+    LORA_PRESET_DOWNLOAD = 0x02
+} LORA_SUBCMD_CODES;
+
+_Static_assert( sizeof( LORA_PRESET ) == 8, "LoRa Preset Size Mismatch." );
+
 LORA_STATUS lora_read_register( LORA_REGISTER_ADDR lora_register, uint8_t* regData);
 
 LORA_STATUS lora_write_register( LORA_REGISTER_ADDR lora_register, uint8_t data );
@@ -158,7 +178,18 @@ LORA_STATUS lora_get_device_id(uint8_t* buffer_ptr);
 
 LORA_STATUS lora_set_chip_mode( LORA_CHIPMODE chip_mode );
 
-LORA_STATUS lora_init();
+LORA_STATUS lora_cmd_execute
+    ( 
+    uint8_t subcommand_code,
+    LORA_PRESET* lora_preset_buf
+    );
+
+LORA_STATUS lora_configure
+    (
+    LORA_PRESET* preset
+    );
+
+LORA_STATUS lora_init( LORA_CONFIG *lora_config_ptr );
 
 void lora_reset();
 
