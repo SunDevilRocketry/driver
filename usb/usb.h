@@ -3,9 +3,16 @@
   * @file           : usb.h
   * @brief          : Universal Serial Communication Driver
   * @author         : Sun Devil Rocketry Firmware Team
-  * 
-  * @note           : Provides a unified interface for both Native USB CDC 
-  *                   (A0010) and Legacy UART-to-USB bridges. 
+  *
+  * @note  Provides a unified interface for both Native USB CDC (A0010) and
+  *        Legacy UART-to-USB bridges via the USE_USB_CDC_FS compiler flag.
+  *
+  *        Features:
+  *        - Consistent API regardless of underlying hardware
+  *        - Blocking transmit/receive for synchronization reliability
+  *        - Internal 2048-byte circular buffer for reception (CDC mode) [Check usbd_cdc_if.c]
+  *        - Deadlock prevention via VCP_Force_Unlock on disconnect [Check usbd_cdc_if.c]
+  *
   ******************************************************************************
   * @attention
   * Copyright (c) 2026 Sun Devil Rocketry. All rights reserved.
@@ -15,7 +22,6 @@
   * BSD-3-Clause (https://opensource.org/license/bsd-3-clause).   
   ******************************************************************************
   */
-
 
 /* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef USB_H
@@ -29,99 +35,93 @@ extern "C" {
 /*------------------------------------------------------------------------------
  Includes 
 ------------------------------------------------------------------------------*/
-#include "main.h"       /* Required for HAL types */
-#include <stdint.h>     
-#include <stddef.h> 
 #include <stdbool.h>
+#include <stddef.h>
+
+#ifndef USE_USB_CDC_FS
+    #include "main.h"   /* Required for UART_HandleTypeDef in legacy mode */
+#endif
 
 
 /*------------------------------------------------------------------------------
- Typdefs 
+ Typedefs 
 ------------------------------------------------------------------------------*/
 
 /**
   * @brief Standard status return codes for USB driver operations.
   */
 typedef enum {
-    USB_OK = 0,             /*!< Operation completed successfully */
-    USB_FAIL,               /*!< Hardware error or invalid parameters */
-    USB_TIMEOUT             /*!< Operation exceeded the specified time limit */
+    USB_OK = 0,             /*!< Operation completed successfully              */
+    USB_FAIL,               /*!< Hardware error, uninitialized, or unplugged   */
+    USB_TIMEOUT,            /*!< Operation exceeded the specified time limit   */
+    USB_DISCONNECTED        /*!< Cable physically disconnected mid-operation   */
 } USB_STATUS;
 
 
-/* Exported functions --------------------------------------------------------*/
+/*------------------------------------------------------------------------------
+ Function Prototypes 
+------------------------------------------------------------------------------*/
 
 /**
   * @brief  Initializes the hardware for serial communication.
-  * @note   For A0010 (USE_USB_CDC_FS), this starts the USB middleware.
-  *         For legacy boards, it assigns the UART handle.
-  * 
-  * @param  huart: Pointer to the UART handle (Only used for legacy UART mode).
-  * @retval USB_STATUS: USB_OK on success.
+  * @note   For CDC mode (USE_USB_CDC_FS), starts the USB middleware stack.
+  *         For legacy boards, validates the provided UART handle.
+  * @param  huart: Pointer to the UART handle (legacy mode only).
+  * @retval USB_STATUS: USB_OK on success, USB_FAIL if handle is NULL.
   */
 #ifdef USE_USB_CDC_FS
 USB_STATUS usb_init(void);
 #else
 USB_STATUS usb_init(UART_HandleTypeDef* huart);
-#endif
+#endif /* USE_USB_CDC_FS */
 
 /**
-  * @brief  Monitors the physical connection state of the USB cable.
-  * @note   Must be called periodically (e.g., in the main while loop). 
-  *         Handles enumeration/disconnection syncing for USE_USB_CDC_FS. Does nothing for legacy.
-  */
-void usb_poll_connection(void);
-
-/**
-  * @brief  Transmits a buffer of data over the serial interface.
-  * @param  data: Pointer to the byte array to send.
-  * @param  size: Number of bytes to transmit.
-  * @param  timeout_ms: Maximum time (in ms) to wait before giving up.
+  * @brief  Transmits a specified number of bytes over USB.
+  * @param  tx_data_ptr:  Pointer to the data buffer to send.
+  * @param  tx_data_size: Number of bytes to transmit.
+  * @param  timeout:      Maximum time (in ms) to wait before giving up.
   * @retval USB_STATUS: USB_OK, USB_TIMEOUT, or USB_FAIL.
   */
-USB_STATUS usb_transmit(uint8_t* data, uint16_t size, uint32_t timeout_ms);
+USB_STATUS usb_transmit(void* tx_data_ptr, size_t tx_data_size, uint32_t timeout);
 
 /**
-  * @brief  Receives a specific amount of data from the serial interface.
-  * @param  data: Pointer to the buffer where received data will be stored.
-  * @param  size: Exact number of bytes to wait for.
-  * @param  timeout_ms: Maximum time (in ms) to wait before giving up.
-  * @retval USB_STATUS: USB_OK, USB_TIMEOUT, or USB_FAIL.
+  * @brief  Receives a specified number of bytes from the USB port.
+  * @param  rx_data_ptr:  Pointer to the buffer where received data will be stored.
+  * @param  rx_data_size: Exact number of bytes to wait for.
+  * @param  timeout:      Maximum time (in ms) to wait before giving up.
+  * @note   Timeout should be sized to accommodate the full expected byte count.
+  * @retval USB_STATUS: USB_OK, USB_TIMEOUT, USB_FAIL, or USB_DISCONNECTED.
   */
-USB_STATUS usb_receive(uint8_t* data, uint16_t size, uint32_t timeout_ms);
+USB_STATUS usb_receive(void* rx_data_ptr, size_t rx_data_size, uint32_t timeout);
 
 /**
-  * @brief  Checks if there is unread data waiting in the receive buffer.
-  * @retval uint8_t: 1 if data is available, 0 if empty.
+  * @brief  Removes garbage data by flushing the receive buffer.
+  * @note   In CDC mode, optionally blocks until any pending TX completes.
+  * @param  flush_tx: If true, waits for pending transmission to complete.
+  *                   Parameter only present in CDC mode.
+  * @retval USB_STATUS: USB_OK on success, USB_TIMEOUT if TX flush times out.
+  *                     Legacy mode returns void.
   */
-uint8_t usb_data_available(void);
-
-/**
- * @brief Deinitializes USB hardware and releases resources
- * @note For Native USB CDC mode, stops the USB device and forces disconnect
- *       For legacy mode, releases the UART handle reference
- */
-USB_STATUS usb_deinit(void);
-
-/**
- * @brief  Clears all pending data from receive buffer.
- * @param  flush_tx: If true, also waits for pending transmissions to complete
- * @retval USB_STATUS: USB_OK on success, USB_TIMEOUT if TX flush times out
- */
+#ifdef USE_USB_CDC_FS
 USB_STATUS usb_flush(bool flush_tx);
+#else
+void usb_flush(void);
+#endif /* USE_USB_CDC_FS */
 
-/* Checks for an active USB connection */
-#if defined( USE_USB_CDC_FS ) || \
-    defined( A0002_REV2 )     || \
-    defined( FLIGHT_COMPUTER_LITE ) || \
-    defined( L0002_REV5 )     || \
-    defined( L0005_REV3 )
 /**
   * @brief  Checks if the USB cable is physically connected (VBUS detected).
+  * @note   Only available on hardware with a USB_DETECT GPIO. Calling this
+  *         on an unsupported platform will result in a linker error.
   * @retval bool: true if connected, false if unplugged.
   */
+#if defined( USE_USB_CDC_FS       ) || \
+    defined( A0002_REV2           ) || \
+    defined( FLIGHT_COMPUTER_LITE ) || \
+    defined( L0002_REV5           ) || \
+    defined( L0005_REV3           )
 bool usb_detect(void);
-#endif
+#endif /* USE_USB_CDC_FS || A0002_REV2 || FLIGHT_COMPUTER_LITE || L0002_REV5 || L0005_REV3 */
+
 
 #ifdef __cplusplus
 }

@@ -130,13 +130,15 @@ uint16_t VCP_Bytes_Available(void);
 
 /**
   * @brief  Resets the USB CDC transmit state to idle.
-  * @note   Safe to call - uses atomic write operation on ARM Cortex-M.
+  * @note   Safe to call, uses atomic write operation on ARM Cortex-M.
   * @retval None
   */
 void VCP_Force_Unlock(void);
 
 /**
   * @brief  Clears the internal receive buffer by resetting head/tail pointers.
+  * @note   Uses __disable_irq() for pointer consistency. Global IRQ disable —
+  *         use with caution near PWM or timer-sensitive contexts.
   * @retval None
   */
 void VCP_Clear_RxBuffer(void);
