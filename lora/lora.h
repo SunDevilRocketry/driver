@@ -32,6 +32,8 @@ extern "C" {
  Includes
 ------------------------------------------------------------------------------*/
 #include <stdint.h>
+#include <stdbool.h>
+#include <assert.h>
 
 #define LORA_TIMEOUT                2000
 
@@ -64,7 +66,8 @@ typedef enum _LORA_STATUS {
    LORA_TIMEOUT_FAIL,
    LORA_BUFFER_UNDERSIZED,
    LORA_READY,
-   LORA_WAITING
+   LORA_WAITING,
+   LORA_USING_DEFAULTS
 } LORA_STATUS;
 
 /* Datasheet page 107 */
@@ -112,7 +115,7 @@ typedef enum _LORA_PA_SELECT {
    LORA_PA_BOOST = 0x01
 } LORA_PA_SELECT;
 
-/* LORA CONFIG SETTINGS */
+/* LORA CONFIG SETTINGS -- arg for lora_init() */
 typedef struct _LORA_CONFIG {
    LORA_CHIPMODE lora_mode; // Current LORA Chipmode
    LORA_SPREADING_FACTOR lora_spread; // LoRa Spread factor
@@ -123,6 +126,22 @@ typedef struct _LORA_CONFIG {
    uint32_t lora_frequency; // The LORA carrier frequency, in kilohertz.
    // To convert to internal chip unit, use the formula (2^19 * x)/(32 * 10^3)
 } LORA_CONFIG;
+
+/* LORA PRESET SETTINGS - subset of configs, used during runtime configuration */
+typedef struct LORA_PRESET {
+    uint8_t lora_spread; /* SF 6 - 12 supported. Validate the range. */
+    uint8_t lora_bandwidth; /* enum -- spec defined in LORA_BANDWIDTH. Packed to one byte. */
+    uint8_t lora_ecr; /* error coding options are 4:5, 4:6, 4:7, and 4:8 */
+    uint8_t    high_power_mode; /* true: +20 dBm boost */
+    uint32_t lora_frequency; /* frequency in kHz */
+    /* omitted: chipmode, header mode (defined by fw) */
+} LORA_PRESET;
+_Static_assert( sizeof( LORA_PRESET ) == 8, "LORA PRESET SIZE MISMATCH." );
+
+typedef enum LORA_SUBCMD_CODES {
+    LORA_PRESET_UPLOAD = 0x01,
+    LORA_PRESET_DOWNLOAD = 0x02
+} LORA_SUBCMD_CODES;
 
 /*------------------------------------------------------------------------------
  Function Prototypes
@@ -141,6 +160,18 @@ LORA_STATUS lora_set_chip_mode
 // Reset the LoRa modem
 void lora_reset
     (
+    void
+    );
+
+LORA_STATUS lora_cmd_execute
+    ( 
+    uint8_t subcommand_code,
+    LORA_PRESET* lora_preset_buf
+    );
+
+LORA_STATUS lora_configure
+    (
+    LORA_PRESET* preset
     );
 
 // Make LoRa radio transmitter
@@ -153,6 +184,7 @@ LORA_STATUS lora_transmit
 // Check if modem has received packet
 LORA_STATUS lora_receive_ready
     (
+    void
     );
 
 // Read received packet if available
@@ -161,7 +193,7 @@ LORA_STATUS lora_receive
     uint8_t* buffer_ptr,
     uint8_t buffer_len,
     uint8_t* num_bytes_received
-    ) ;
+    );
 
 #ifdef __cplusplus
 }

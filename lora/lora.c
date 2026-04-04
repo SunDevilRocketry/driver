@@ -43,6 +43,7 @@
 ------------------------------------------------------------------------------*/
 #include "lora.h"
 #include "main.h"
+#include "usb.h"
 #include "led.h"
 
 /*------------------------------------------------------------------------------
@@ -253,6 +254,152 @@ if ( status == LORA_OK )
 else return LORA_FAIL;
 }
 
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   *
+* 		lora_cmd_execute                                                       *
+*                                                                              *
+* DESCRIPTION:                                                                 *
+*       Execute a LoRa terminal command.                                       *
+*                                                                              *
+*******************************************************************************/
+LORA_STATUS lora_cmd_execute
+    ( 
+    uint8_t subcommand_code,
+    LORA_PRESET* lora_preset_buf
+    )
+{
+switch (subcommand_code)
+    {
+    /*-------------------------------------------------------------
+     Upload Preset (to FC)
+    -------------------------------------------------------------*/
+    case LORA_PRESET_UPLOAD:
+        {
+        /* Recieve preset subcommand over USB */
+        uint8_t data_receive_buffer[sizeof( LORA_PRESET )];
+        if (usb_receive( data_receive_buffer,
+                                sizeof( LORA_PRESET ),
+                                10 * HAL_DEFAULT_TIMEOUT ) == USB_OK)
+            {
+            /* Copy received data into preset data */
+            memcpy(lora_preset_buf, data_receive_buffer, sizeof( LORA_PRESET ) );
+            return LORA_OK;
+            }
+        else 
+            {
+            /* lora presets remain untouched if usb receive fails */
+            return LORA_FAIL;
+            }
+        }
+    /*-------------------------------------------------------------
+     Download Preset (from FC)
+    -------------------------------------------------------------*/
+    case LORA_PRESET_DOWNLOAD:
+        {
+        /* tx straight from buffer (usb transmit does not modify the buffer) */
+        if( usb_transmit( lora_preset_buf, sizeof( LORA_PRESET ), 10 * HAL_DEFAULT_TIMEOUT ) )
+            {
+            return LORA_OK;
+            }
+        else
+            {
+            return LORA_FAIL;
+            }
+        }
+    /*-------------------------------------------------------------
+     Unrecognized command code  
+    -------------------------------------------------------------*/
+    default:
+        {
+        return LORA_FAIL;
+        }
+    }
+
+} /* lora_cmd_execute */
+
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   *
+* 		lora_configure                                                         *
+*                                                                              *
+* DESCRIPTION:                                                                 *
+*       Configure and re-initialize the lora modem.                            *
+*                                                                              *
+*******************************************************************************/
+LORA_STATUS lora_configure
+    (
+    LORA_PRESET* preset
+    )
+{
+LORA_CONFIG lora_config;
+LORA_STATUS lora_status = LORA_OK;
+memset( &lora_config, 0, sizeof( lora_config ) );
+
+/* Set app-dependent (non-configurable) parameters. */
+// ETS TEMP: We may elect to change these later, but this 
+// is what we're using for now.
+lora_config.lora_header_mode = LORA_EXPLICIT_HEADER;
+lora_config.lora_mode = LORA_SLEEP_MODE;
+
+/* Make sure presets are neither all 0xFF nor all 0x00 for validity */
+if( preset )
+    {
+    /* 00 buffer check */
+    uint8_t cmp_buf[sizeof(LORA_PRESET)];
+    memset(cmp_buf, 0x00, sizeof(LORA_PRESET));
+    if (!memcmp(cmp_buf, preset, sizeof(LORA_PRESET)))
+        {
+        preset = NULL;
+        }
+
+    /* FF buffer check */
+    memset(cmp_buf, 0xFF, sizeof(LORA_PRESET));
+    if (preset && !memcmp(cmp_buf, preset, sizeof(LORA_PRESET)))
+        {
+        preset = NULL;
+        }
+    }
+
+/* Check if presets exist. If so, we'll use them. Else, prepare defaults. */
+if( !preset )
+    {
+    /* drew's most frequently tested parameters. in particular, 915 will help us see that these are the defaults */
+    lora_config.lora_bandwidth = LORA_BANDWIDTH_125_KHZ;
+    lora_config.lora_ecr = LORA_ECR_4_5;
+    lora_config.lora_frequency = 915000;
+    lora_config.lora_spread = LORA_SPREAD_12;
+    lora_config.lora_pa_select = false;
+
+    lora_status = LORA_USING_DEFAULTS;
+    }
+else
+    {
+    lora_config.lora_bandwidth = preset->lora_bandwidth;
+    lora_config.lora_ecr = preset->lora_ecr;
+    lora_config.lora_frequency = preset->lora_frequency;
+    lora_config.lora_spread = preset->lora_spread;
+    lora_config.lora_pa_select = preset->high_power_mode;
+
+    lora_status = LORA_OK;
+    }
+
+/* reset and re-initialize */
+lora_reset();
+HAL_Delay(10);
+if (lora_init( &lora_config ) == LORA_OK)
+    {
+    return lora_status;
+    }
+else
+    {
+    return LORA_FAIL;
+    }
+
+} /* lora_configure */
+
 // Get the device chip ID
 static LORA_STATUS lora_get_device_id
     (
@@ -456,6 +603,7 @@ if( set_sleep_status + read_status1 + read_status2 + read_status3 + read_status4
 *******************************************************************************/
 void lora_reset
     (
+    void
     )
 {
 HAL_GPIO_WritePin(LORA_RST_GPIO_PORT, LORA_RST_PIN, GPIO_PIN_RESET); // Pull Low
@@ -548,6 +696,7 @@ if( fifo_status + tmode_status + regop_status + sendbyte_status == 0 ) {
 *******************************************************************************/
 LORA_STATUS lora_receive_ready
     (
+    void
     )
 {
 uint8_t mode;
