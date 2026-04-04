@@ -254,6 +254,16 @@ if ( status == LORA_OK )
 else return LORA_FAIL;
 }
 
+static LORA_STATUS LORA_SPI_Transmit_Byte
+    (
+    LORA_REGISTER_ADDR reg
+    )
+{
+/*------------------------------------------------------------------------------
+    Local Variables
+------------------------------------------------------------------------------*/
+HAL_StatusTypeDef status;
+uint8_t transmitBuffer = reg;
 
 /*******************************************************************************
 *                                                                              *
