@@ -735,10 +735,9 @@ if ( lora_rx_done == LORA_READY ){
     uint8_t irq_flag;
 
     LORA_STATUS irq_status2 = lora_read_register(LORA_REG_IRQ_FLAGS, &irq_flag);
-    lora_write_register( LORA_REG_IRQ_FLAGS, irq_flag ); // TODO check if removing this unnecessary write breaks things
-    uint8_t crc_err = ( irq_flag & 0x20 ) == 0x00;
+    uint8_t crc_err = ( irq_flag & 0x20 ) == 0x20;
 
-    if (!crc_err){
+    if (!crc_err){ // TODO make a fail happen for a CRC error
         // Read received number of bytes
         uint8_t num_bytes;
         LORA_STATUS fifo2_status = lora_read_register(LORA_REG_FIFO_RX_NUM_BYTES, &num_bytes);
