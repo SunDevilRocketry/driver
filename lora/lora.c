@@ -25,10 +25,6 @@
  Standard Includes
 ------------------------------------------------------------------------------*/
 
-// #include <cstdint>
-#include <stdlib.h>
-#include <string.h>
-
 /*------------------------------------------------------------------------------
  MCU Pins
 ------------------------------------------------------------------------------*/
@@ -654,21 +650,9 @@ LORA_STATUS fifo_status = lora_write_register(LORA_REG_SIGNAL_TO_NOISE, buffer_l
 LORA_STATUS sendbyte_status = LORA_OK;
 for (int i = 0; i<buffer_len; i++){
     sendbyte_status = lora_write_register(LORA_REG_FIFO_RW, buffer_ptr[i]);
-
-    /* TESTING PURPOSE */
-    LORA_STATUS ptr_status = lora_read_register(LORA_REG_FIFO_SPI_POINTER, &fifo_ptr_addr_test);  // Access LoRA FIFO data buffer pointer
 }
 
-/* TESTING PURPOSE: Read payload length */
-uint8_t test_buf;
-lora_read_register( LORA_REG_SIGNAL_TO_NOISE, &test_buf );
-
 LORA_STATUS tmode_status = lora_set_chip_mode(LORA_TRANSMIT_MODE);
-
-/* TESTING PURPOSE: Test op mode transition */
-uint8_t operation_mode_register;
-lora_read_register( LORA_REG_OPERATION_MODE, &operation_mode_register );
-
 
 uint8_t lora_op;
 LORA_STATUS regop_status;
@@ -703,13 +687,7 @@ uint8_t mode;
 
 LORA_STATUS mode_check = lora_read_register( LORA_REG_OPERATION_MODE, &mode );
 mode = mode & 0x07;
-/*
-#if defined( TESTRECEIVER ) // LoRa testbed test code
-    char buf[255];
-    int len = sprintf( buf, "Mode: %d\n", mode);
-    serial_printlnx( buf, len );
-#endif
-*/
+
 if( mode_check == LORA_OK && mode == LORA_RX_CONTINUOUS_MODE ) {
     uint8_t irq_flag;
 
@@ -718,17 +696,7 @@ if( mode_check == LORA_OK && mode == LORA_RX_CONTINUOUS_MODE ) {
     if( irq_check == LORA_OK ) {
         lora_write_register( LORA_REG_IRQ_FLAGS, irq_flag );
         uint8_t rx_done = ( irq_flag & 0x40 ) == 0x40;
-        // uint8_t rx_done = ( irq_flag & 0x40 ) == 0x00;
-        /*
-        #if defined( TESTRECEIVER )
-        char bufx[255];
-        int len = sprintf( bufx, "Register: %x\n", irq_flag);
-        serial_printlnx( bufx, len );
-        char bufy[255];
-        int len2 = sprintf( bufy, "lora_receive_ready: %x\n", rx_done );
-        serial_printlnx( bufy, len2 );
-        #endif
-        */
+
         if( rx_done ) {
             lora_rx_done = LORA_READY;
             return LORA_READY;
@@ -762,25 +730,23 @@ LORA_STATUS lora_receive
 {
 uint8_t timeout_flag;
 
-// LORA_STATUS rx_done = lora_receive_ready(); // We check if we've received a packet.
-// If we haven't received a packet, the output will be similar to lora_receive_ready in that case.
-
 if ( lora_rx_done == LORA_READY ){
-    // Reset IRQ register. TODO: Not sure if I actually need to this; will investigate.
-    uint8_t reset_irq = 0;
-    // lora_write_register( LORA_REG_IRQ_FLAGS, reset_irq );
-
+    // Write IRQ flags
     uint8_t irq_flag;
 
     LORA_STATUS irq_status2 = lora_read_register(LORA_REG_IRQ_FLAGS, &irq_flag);
-    lora_write_register( LORA_REG_IRQ_FLAGS, irq_flag );
-    uint8_t crc_err = irq_flag & 0x20 == 0x00;
-    // uint8_t crc_err = irq_flag & 0x20 == 0x00;
+    lora_write_register( LORA_REG_IRQ_FLAGS, irq_flag ); // TODO check if removing this unnecessary write breaks things
+    uint8_t crc_err = ( irq_flag & 0x20 ) == 0x00;
 
     if (!crc_err){
         // Read received number of bytes
         uint8_t num_bytes;
         LORA_STATUS fifo2_status = lora_read_register(LORA_REG_FIFO_RX_NUM_BYTES, &num_bytes);
+
+        // In case SPI operation fials
+        if( fifo2_status != LORA_OK ) {
+            return LORA_FAIL;
+        }
 
         if (num_bytes > buffer_len)
             {
@@ -792,13 +758,11 @@ if ( lora_rx_done == LORA_READY ){
         LORA_STATUS base_adr_status = lora_read_register(LORA_REG_FIFO_RX_BASE_CUR_ADDR, &fifo_ptr_addr);  // Access LoRA FIFO data buffer pointer
         if (base_adr_status != LORA_OK){
             // Error handler
-            // led_set_color(// led_RED);
             return LORA_FAIL;
         }
         LORA_STATUS ptr2_status = lora_write_register(LORA_REG_FIFO_SPI_POINTER, fifo_ptr_addr); // Set fifo data pointer to TX base address
         if (ptr2_status != LORA_OK){
             // Error handler
-            // led_set_color(// led_RED);
             return LORA_FAIL;
         }
         // Begin extracting payload
