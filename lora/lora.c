@@ -356,7 +356,7 @@ memset( &lora_config, 0, sizeof( lora_config ) );
 // ETS TEMP: We may elect to change these later, but this
 // is what we're using for now.
 lora_config.lora_header_mode = LORA_EXPLICIT_HEADER;
-lora_config.lora_mode = LORA_SLEEP_MODE;
+lora_config.lora_mode = LORA_STANDBY_MODE;
 
 /* Make sure presets are neither all 0xFF nor all 0x00 for validity */
 if( preset )
@@ -392,7 +392,7 @@ if( !preset )
 else
     {
     lora_config.lora_bandwidth = preset->lora_bandwidth;
-    lora_config.lora_ecr = preset->lora_ecr;
+    lora_config.lora_ecr = preset->lora_ecr - 4;
     lora_config.lora_frequency = preset->lora_frequency;
     lora_config.lora_spread = preset->lora_spread;
     lora_config.lora_pa_select = preset->high_power_mode;
