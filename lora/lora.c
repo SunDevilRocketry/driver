@@ -141,20 +141,19 @@ return LORA_FAIL;
 
 static LORA_STATUS LORA_SPI_Transmit_Byte
     (
-    LORA_REGISTER_ADDR reg
+    uint8_t byte
     )
 {
 /*------------------------------------------------------------------------------
     Local Variables
 ------------------------------------------------------------------------------*/
 HAL_StatusTypeDef status;
-uint8_t transmitBuffer = reg;
 
 /*------------------------------------------------------------------------------
     Implementation
 ------------------------------------------------------------------------------*/
 /* Takes register and data to write (1 byte) and writes that register. */
-status = HAL_SPI_Transmit( &(LORA_SPI), &transmitBuffer, 1, LORA_TIMEOUT);
+status = HAL_SPI_Transmit( &(LORA_SPI), &byte, 1, LORA_TIMEOUT);
 
 if (status == HAL_OK)
     {
@@ -225,6 +224,40 @@ if (transmit_status + receive_status == 0){
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   *
+* 		lora_read_register_buffer                                              *
+*                                                                              *
+* DESCRIPTION:                                                                 *
+*       Read buffer from internal modem register                               *
+*                                                                              *
+*******************************************************************************/
+static LORA_STATUS lora_read_register_buffer
+    (
+    LORA_REGISTER_ADDR lora_register,
+    uint8_t* pRegData,
+    uint8_t buffer_len
+    )
+{
+LORA_STATUS status;
+HAL_StatusTypeDef hal_status;
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+
+status = LORA_SPI_Transmit_Byte( (lora_register & 0x7F) );
+if( status != LORA_OK )
+    return LORA_FAIL;
+
+hal_status = HAL_SPI_Receive( &(LORA_SPI), pRegData, buffer_len, LORA_TIMEOUT );
+if( hal_status != HAL_OK )
+    return LORA_FAIL;
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+return LORA_OK;
+}
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   *
 * 		lora_write_register                                                    *
 *                                                                              *
 * DESCRIPTION:                                                                 *
@@ -250,6 +283,42 @@ if ( status == LORA_OK )
 else return LORA_FAIL;
 }
 
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   *
+* 		lora_write_register_buffer                                             *
+*                                                                              *
+* DESCRIPTION:                                                                 *
+*       Write internal modem register with data buffer                         *
+*                                                                              *
+*******************************************************************************/
+static LORA_STATUS lora_write_register_buffer
+    (
+    LORA_REGISTER_ADDR lora_register,
+    uint8_t* data,
+    uint8_t buffer_len
+    )
+{
+HAL_StatusTypeDef status;
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+
+// SPI write regester we are writing
+uint8_t dest_reg = (lora_register | 0x80);
+status = HAL_SPI_Transmit( &(LORA_SPI), &dest_reg, 1, LORA_TIMEOUT);
+if ( status != HAL_OK )
+    return LORA_FAIL;
+
+// Write desire buffer
+status = HAL_SPI_Transmit( &(LORA_SPI), data, buffer_len, LORA_TIMEOUT);
+if ( status != HAL_OK )
+    return LORA_FAIL;
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+
+return LORA_OK;
+}
 
 /*******************************************************************************
 *                                                                              *
@@ -261,7 +330,7 @@ else return LORA_FAIL;
 *                                                                              *
 *******************************************************************************/
 LORA_STATUS lora_cmd_execute
-    ( 
+    (
     uint8_t subcommand_code,
     LORA_PRESET* lora_preset_buf
     )
@@ -283,7 +352,7 @@ switch (subcommand_code)
             memcpy(lora_preset_buf, data_receive_buffer, sizeof( LORA_PRESET ) );
             return LORA_OK;
             }
-        else 
+        else
             {
             /* lora presets remain untouched if usb receive fails */
             return LORA_FAIL;
@@ -305,7 +374,7 @@ switch (subcommand_code)
             }
         }
     /*-------------------------------------------------------------
-     Unrecognized command code  
+     Unrecognized command code
     -------------------------------------------------------------*/
     default:
         {
@@ -335,7 +404,7 @@ LORA_STATUS lora_status = LORA_OK;
 memset( &lora_config, 0, sizeof( lora_config ) );
 
 /* Set app-dependent (non-configurable) parameters. */
-// ETS TEMP: We may elect to change these later, but this 
+// ETS TEMP: We may elect to change these later, but this
 // is what we're using for now.
 lora_config.lora_header_mode = LORA_EXPLICIT_HEADER;
 lora_config.lora_mode = LORA_SLEEP_MODE;
@@ -648,9 +717,16 @@ LORA_STATUS fifo_status = lora_write_register(LORA_REG_SIGNAL_TO_NOISE, buffer_l
 
 // Send byte to byte to the fifo buffer
 LORA_STATUS sendbyte_status = LORA_OK;
+
+/*
+// Old transmit buffer write code
+// TODO don't remove until burst transmit is working
 for (int i = 0; i<buffer_len; i++){
     sendbyte_status = lora_write_register(LORA_REG_FIFO_RW, buffer_ptr[i]);
 }
+*/
+
+sendbyte_status = lora_write_register_buffer( LORA_REG_FIFO_RW, buffer_ptr, buffer_len );
 
 LORA_STATUS tmode_status = lora_set_chip_mode(LORA_TRANSMIT_MODE);
 
@@ -766,11 +842,18 @@ if ( lora_rx_done == LORA_READY ){
         }
         // Begin extracting payload
         LORA_STATUS pld_xtr_status = LORA_OK;
+
+        /*
+        // Old Rx buffer read code
+        // TODO don't remove until burst read is confirmed working
         for (int i = 0; i < num_bytes; i++){
             uint8_t packet;
             pld_xtr_status = lora_read_register(LORA_REG_FIFO_RW, &packet);  // Access LoRA FIFO data buffer pointer
             buffer_ptr[i] = packet;
-        }
+        } */
+
+        lora_read_register_buffer( LORA_REG_FIFO_SPI_POINTER, buffer_ptr, num_bytes);
+
         *num_bytes_received = num_bytes;
         if (pld_xtr_status == LORA_OK ) {
             return LORA_OK;
