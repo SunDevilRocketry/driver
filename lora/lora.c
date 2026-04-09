@@ -500,7 +500,6 @@ LORA_STATUS lora_write_register_IT
     uint8_t data
     )
 {
-HAL_StatusTypeDef hal_status;
 static uint8_t write_reg[2]; /* statically scoped so it doesn't go out of scope during tx */
 write_reg[0] = (lora_register | 0x80);
 write_reg[1] = data;
