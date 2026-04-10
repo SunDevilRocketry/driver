@@ -102,19 +102,24 @@
  Procedures 
 ------------------------------------------------------------------------------*/
 
-/* Validates UART handle for legacy UART-to-USB bridge boards */
-#ifndef USE_USB_CDC_FS
-USB_STATUS usb_init( UART_HandleTypeDef* huart )
+/* Initializes the USB or UART driver based on build configuration */
+USB_STATUS usb_init(void)
 {   /* ==================== API implementation =================== */
 
-    /* Null handle would cause silent dereference failures at runtime */
-    if (huart == NULL) {
-        return USB_FAIL;
-    }
-    return USB_OK;
+    #ifdef USE_USB_CDC_FS
+        /* Initialize Native USB CDC Middleware */
+        MX_USB_DEVICE_Init();
+        return USB_OK;
+    #else
+        /* For legacy mode, the global USB_HUART is initialized in main.c.
+        We can verify CubeMX assigned the base address. */
+        if (USB_HUART.Instance == NULL) {
+            return USB_FAIL;
+        }
+        return USB_OK;
+    #endif
 
 } /* usb_init */
-#endif /* USE_USB_CDC_FS */
 
 #ifdef USE_USB_CDC_FS
     #include "usb_cdc.c"

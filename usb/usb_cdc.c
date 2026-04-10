@@ -25,15 +25,6 @@
   */
 
 
-/* Initializes USB middleware stack (CDC) */
-USB_STATUS usb_init(void)
-{   /* ==================== API implementation =================== */
-    
-    MX_USB_DEVICE_Init();
-    return USB_OK;
-} /* usb_init */
-
-
 /* Transmits a specified number of bytes over USB */
 USB_STATUS usb_transmit
     (

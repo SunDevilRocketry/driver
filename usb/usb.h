@@ -64,17 +64,9 @@ typedef enum {
 
 /**
   * @brief  Initializes the hardware for serial communication.
-  * @note   For CDC mode (USE_USB_CDC_FS), starts the USB middleware stack.
-  *         For legacy boards, validates the provided UART handle.
-  * @param  huart: Pointer to the UART handle (legacy mode only).
-  * @retval USB_STATUS: USB_OK on success, USB_FAIL if handle is NULL.
+  * @retval USB_STATUS: USB_OK on success.
   */
-#ifdef USE_USB_CDC_FS
 USB_STATUS usb_init(void);
-#else
-USB_STATUS usb_init(UART_HandleTypeDef* huart);
-#endif /* USE_USB_CDC_FS */
-
 /**
   * @brief  Transmits a specified number of bytes over USB.
   * @param  tx_data_ptr:  Pointer to the data buffer to send.
