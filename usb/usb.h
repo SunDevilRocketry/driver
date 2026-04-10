@@ -39,7 +39,7 @@ extern "C" {
 #include <stddef.h>
 
 #ifndef USE_USB_CDC_FS
-    #include "main.h"   /* Required for UART_HandleTypeDef in legacy mode */
+    #include "stm32h7xx_hal.h"  /* Required for UART_HandleTypeDef in legacy mode */
 #endif
 
 

@@ -116,13 +116,6 @@ USB_STATUS usb_init( UART_HandleTypeDef* huart )
 } /* usb_init */
 #endif /* USE_USB_CDC_FS */
 
-
-/*------------------------------------------------------------------------------
- Build Configuration Notice
-
- Include the appropriate implementation source based on build configuration.
- These files are >not compiled< independently.
-------------------------------------------------------------------------------*/
 #ifdef USE_USB_CDC_FS
     #include "usb_cdc.c"
 #else

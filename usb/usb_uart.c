@@ -47,10 +47,22 @@ USB_STATUS usb_transmit
                                     timeout );
 
     /* Return HAL status */
-    if ( usb_status != HAL_OK ) {
-        return usb_status;
-    } else {
-        return USB_OK;
+    switch ( usb_status ) {
+        case HAL_TIMEOUT:
+            {
+            return USB_TIMEOUT;
+            break;
+            }
+        case HAL_OK:
+            {
+            return USB_OK;
+            break;
+            }
+        default:
+            {
+            return USB_FAIL;
+            break;
+            }
     }
 
 } /* usb_transmit */
@@ -102,19 +114,11 @@ USB_STATUS usb_receive
     defined( L0005_REV3           )
 bool usb_detect( void )
 {   /* ==================== API implementation =================== */
-
-    uint8_t usb_detect_pinstate;    /* USB detect state, return value from HAL    */
-
-    usb_detect_pinstate = 0;
-
-    /* Read voltage on USB detect pin */
-    usb_detect_pinstate = HAL_GPIO_ReadPin( USB_DETECT_GPIO_PORT, USB_DETECT_PIN );
-
-    /* Set return value */
-    if ( usb_detect_pinstate == 0 ) {
-        return false;
-    } else {
+    /* Read voltage on USB detect pin and compare against GPIO Enum */
+    if (HAL_GPIO_ReadPin(USB_DETECT_GPIO_PORT, USB_DETECT_PIN) == GPIO_PIN_SET) {
         return true;
+    } else {
+        return false;
     }
 } /* usb_detect */
 #endif /* A0002_REV2 || FLIGHT_COMPUTER_LITE || L0002_REV5 || L0005_REV3 */

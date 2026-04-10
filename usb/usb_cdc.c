@@ -120,21 +120,12 @@ USB_STATUS usb_receive
 /* Detects an active USB connection via VBUS GPIO */
 bool usb_detect( void )
 {   /* ==================== API implementation =================== */
-
-    uint8_t usb_detect_pinstate;    /* USB detect state, return value from HAL    */
-
-    usb_detect_pinstate = 0;    
-
-    /* Read voltage on usb detect pin */
-    usb_detect_pinstate = HAL_GPIO_ReadPin( USB_DETECT_GPIO_PORT, USB_DETECT_PIN );
-
-    /* Set return value */
-    if ( usb_detect_pinstate == 0 ){
-        return false;
-    } else {
+    /* Read voltage on USB detect pin and compare against GPIO Enum */
+    if (HAL_GPIO_ReadPin(USB_DETECT_GPIO_PORT, USB_DETECT_PIN) == GPIO_PIN_SET) {
         return true;
+    } else {
+        return false;
     }
-
 } /* usb_detect */
 
 
