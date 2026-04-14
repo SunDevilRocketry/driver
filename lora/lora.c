@@ -757,8 +757,6 @@ LORA_STATUS lora_transmit
     uint8_t buffer_len
     )
 {
-uint8_t fifo_ptr_addr_test; // Testing fifo increment
-
 // Mode request STAND-BY
 LORA_STATUS standby_status = lora_set_chip_mode(LORA_STANDBY_MODE);
 
@@ -869,13 +867,15 @@ LORA_STATUS lora_receive
     uint8_t* num_bytes_received
     )
 {
-uint8_t timeout_flag;
-
 if ( lora_rx_done == LORA_READY ){
     // Write IRQ flags
     uint8_t irq_flag;
 
     LORA_STATUS irq_status2 = lora_read_register(LORA_REG_IRQ_FLAGS, &irq_flag);
+    if( irq_status2 != LORA_OK ) 
+        {
+        return LORA_FAIL;
+        }
     uint8_t crc_err = ( irq_flag & 0x20 ) == 0x20;
 
     if (!crc_err){ // TODO make a fail happen for a CRC error
