@@ -60,12 +60,24 @@ USB_STATUS usb_transmit
 	uint32_t timeout       /* UART timeout          */
 	);
 
+USB_STATUS usb_transmit_IT 
+	(
+    void*    tx_data_ptr , /* Data to be sent       */	
+	size_t   tx_data_size  /* Size of transmit data */ 
+	);
+
 /* Receives bytes from the USB port */
 USB_STATUS usb_receive 
 	(
 	void*    rx_data_ptr , /* Buffer to export data to        */
 	size_t   rx_data_size, /* Size of the data to be received */
 	uint32_t timeout       /* UART timeout */
+	);
+
+USB_STATUS usb_receive_IT 
+	(
+	void*    rx_data_ptr , /* Buffer to export data to        */
+	size_t   rx_data_size  /* Size of the data to be received */
 	);
 
 /* Checks for an active USB connection */
