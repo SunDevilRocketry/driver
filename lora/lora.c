@@ -466,11 +466,11 @@ hal_status = HAL_SPI_TransmitReceive_IT( &(LORA_SPI), read_reg, pRegData, 2 );
 
 /* NSS high is in the callback */
 
-if ( hal_status == HAL_OK ) 
+if ( hal_status == HAL_OK )
     {
     return LORA_OK;
     }
-else 
+else
     {
     return LORA_FAIL;
     }
@@ -538,11 +538,11 @@ hal_status = HAL_SPI_Transmit_IT( &(LORA_SPI), data, len );
 
 /* NSS high is in the callback */
 
-if ( hal_status == HAL_OK ) 
+if ( hal_status == HAL_OK )
     {
     return LORA_OK;
     }
-else 
+else
     {
     return LORA_FAIL;
     }
@@ -706,16 +706,19 @@ LORA_STATUS write_status5 = lora_write_register( LORA_REG_FREQ_MSD, lora_freq_re
 LORA_STATUS write_status6 = lora_write_register( LORA_REG_FREQ_LSB, lora_freq_reg3 );
 
 // Determine register values for the PA Config Register
-uint8_t pa_select_reg;
-LORA_STATUS read_status4 = lora_read_register( LORA_REG_PA_CONFIG, &pa_select_reg );
-uint8_t new_pa_select_reg =  pa_select_reg | lora_config_ptr->lora_pa_select;
+/* uint8_t pa_select_reg;
+LORA_STATUS read_status4 = lora_read_register( LORA_REG_PA_CONFIG, &pa_select_reg ); */
+
+// For now, we're ignoring the config parameters; this is the max possible transmission power setting.
+// and I don't think we'll need anything else.
+uint8_t new_pa_select_reg =  0xFF;
 
 // Write the PA Config Register
 LORA_STATUS write_status7 = lora_write_register( LORA_REG_PA_CONFIG, new_pa_select_reg );
 
 LORA_STATUS standby_status = lora_set_chip_mode( lora_config_ptr->lora_mode ); // Switch it into standby mode, which is what's convenient.
 
-if( set_sleep_status + read_status1 + read_status2 + read_status3 + read_status4 + write_status1 + write_status2 + write_status3 + write_status4 + write_status5 + write_status6 + write_status7 + standby_status == 0 ) {
+if( set_sleep_status + read_status1 + read_status2 + read_status3 + write_status1 + write_status2 + write_status3 + write_status4 + write_status5 + write_status6 + write_status7 + standby_status == 0 ) {
     return LORA_OK;
 } else {
     return LORA_FAIL;
@@ -872,7 +875,7 @@ if ( lora_rx_done == LORA_READY ){
     uint8_t irq_flag;
 
     LORA_STATUS irq_status2 = lora_read_register(LORA_REG_IRQ_FLAGS, &irq_flag);
-    if( irq_status2 != LORA_OK ) 
+    if( irq_status2 != LORA_OK )
         {
         return LORA_FAIL;
         }
