@@ -706,12 +706,16 @@ LORA_STATUS write_status5 = lora_write_register( LORA_REG_FREQ_MSD, lora_freq_re
 LORA_STATUS write_status6 = lora_write_register( LORA_REG_FREQ_LSB, lora_freq_reg3 );
 
 // Determine register values for the PA Config Register
-/* uint8_t pa_select_reg;
-LORA_STATUS read_status4 = lora_read_register( LORA_REG_PA_CONFIG, &pa_select_reg ); */
+uint8_t new_pa_select_reg;
 
-// For now, we're ignoring the config parameters; this is the max possible transmission power setting.
-// and I don't think we'll need anything else.
-uint8_t new_pa_select_reg =  0xFF;
+if( lora_config_ptr->lora_pa_select )
+    {
+    new_pa_select_reg = 0b11111111; /* PA select, everything else maxed out */
+    }
+else
+    {
+    new_pa_select_reg = 0b01111111; /* RFO select, everything else maxed out */
+    }
 
 // Write the PA Config Register
 LORA_STATUS write_status7 = lora_write_register( LORA_REG_PA_CONFIG, new_pa_select_reg );
