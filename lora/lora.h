@@ -35,6 +35,8 @@ extern "C" {
 #include <stdbool.h>
 #include <assert.h>
 
+#include "main.h"
+
 #define LORA_TIMEOUT                2000
 
 /* US ISM band frequencies, used in the code to prevent violating US law */

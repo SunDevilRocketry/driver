@@ -30,8 +30,10 @@
 ------------------------------------------------------------------------------*/
 #if   defined( FLIGHT_COMPUTER   )
 	#include "sdr_pin_defines_A0002.h"
+    #include "led.h"
 #elif defined( GROUND_STATION    )
     #include "sdr_pin_defines_A0005.h"
+    #include "led.h"
 #endif
 
 /*------------------------------------------------------------------------------
@@ -40,7 +42,6 @@
 #include "lora.h"
 #include "main.h"
 #include "usb.h"
-#include "led.h"
 
 /*------------------------------------------------------------------------------
  Global Variables
