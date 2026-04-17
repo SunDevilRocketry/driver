@@ -611,7 +611,7 @@ LORA_STATUS lora_init
 uint8_t device_id = 0;
 lora_get_device_id( &device_id );
 
-if( device_id == 0 ) {
+if( device_id != 0x12 ) {
     return LORA_FAIL;
 }
 
@@ -925,7 +925,7 @@ if ( lora_rx_done == LORA_READY ){
             buffer_ptr[i] = packet;
         } */
 
-        lora_read_register_buffer( LORA_REG_FIFO_SPI_POINTER, buffer_ptr, num_bytes);
+        lora_read_register_buffer( LORA_REG_FIFO_RW, buffer_ptr, num_bytes);
 
         *num_bytes_received = num_bytes;
         if (pld_xtr_status == LORA_OK ) {
