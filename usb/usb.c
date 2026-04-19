@@ -1,44 +1,74 @@
-/*******************************************************************************
-*
-* FILE: 
-* 		usb.c
-*
-* DESCRIPTION: 
-* 		Contains API functions to transmit data over USB 
-*
-* COPYRIGHT:                                                                   
-*       Copyright (c) 2025 Sun Devil Rocketry.                                 
-*       All rights reserved.                                                   
-*                                                                              
-*       This software is licensed under terms that can be found in the LICENSE 
-*       file in the root directory of this software component.                 
-*       If no LICENSE file comes with this software, it is covered under the   
-*       BSD-3-Clause.                                                          
-*                                                                              
-*       https://opensource.org/license/bsd-3-clause          
-*
-*******************************************************************************/
-
+/**
+  ******************************************************************************
+  * @file           : usb.c
+  * @brief          : Universal Serial Driver Interface
+  * @author         : Sun Devil Rocketry Firmware Team
+  *
+  * @note  Hardware Assumptions:
+  *        Target: STM32H733 (A0010, Rev 3 PCB)
+  *        Legacy: STM32H750xx boards using UART-to-USB bridge (A0002, L0002, L0005)
+  *
+  *        For Native USB CDC (USE_USB_CDC_FS):
+  *        - USB_OTG_HS enabled as Internal FS Phy (Device Only)
+  *        - USB_DEVICE Middleware set to Communication Device Class (CDC)
+  *        - USB clock must be exactly 48 MHz
+  *        - VBUS sensing handled via USB_DETECT GPIO (configured as Input
+  *          with Internal Pull-Down to prevent floating when unplugged)
+  *
+  *        For Legacy UART:
+  *        - Standard UART TX/RX pins configured
+  *        - Baud rate: 921600
+  *
+  *        Usage Example (Terminal Echo):
+  *
+  *        #include "usb.h"
+  *
+  *        int main(void) {
+  *            #ifdef USE_USB_CDC_FS
+  *                usb_init();
+  *            #else
+  *                usb_init(&huart3);
+  *            #endif
+  *
+  *            uint8_t rx_byte;
+  *            while (1) {
+  *                if (usb_receive(&rx_byte, 1, 10) == USB_OK) {
+  *                    usb_transmit(&rx_byte, 1, 10);
+  *                }
+  *            }
+  *        }
+  ******************************************************************************
+  * @attention
+  * Copyright (c) 2026 Sun Devil Rocketry. All rights reserved.
+  * This software is licensed under terms that can be found in the LICENSE 
+  * file in the root directory of this software component.                 
+  * If no LICENSE file comes with this software, it is covered under the   
+  * BSD-3-Clause (https://opensource.org/license/bsd-3-clause).   
+  ******************************************************************************
+  */
 
 /*------------------------------------------------------------------------------
  Standard Includes  
 ------------------------------------------------------------------------------*/
 #include <stdbool.h>
+#include <stddef.h>
 
 
 /*------------------------------------------------------------------------------
  MCU Pins 
 ------------------------------------------------------------------------------*/
 #if   defined( FLIGHT_COMPUTER      )
-	#include "sdr_pin_defines_A0002.h"
+    #include "sdr_pin_defines_A0002.h"
 #elif defined( ENGINE_CONTROLLER    )
-	#include "sdr_pin_defines_L0002.h"
+    #include "sdr_pin_defines_L0002.h"
 #elif defined( VALVE_CONTROLLER     )
-	#include "sdr_pin_defines_L0005.h"
+    #include "sdr_pin_defines_L0005.h"
 #elif defined( GROUND_STATION       )
-	#include "sdr_pin_defines_A0005.h"
+    #include "sdr_pin_defines_A0005.h"
 #elif defined( FLIGHT_COMPUTER_LITE )
-	#include "sdr_pin_defines_A0007.h"
+    #include "sdr_pin_defines_A0007.h"
+#elif defined( A0010                )
+    #include "sdr_pin_defines_A0010.h"
 #endif
 
 
@@ -48,14 +78,23 @@
 #include "main.h"
 #include "usb.h"
 
+#ifdef USE_USB_CDC_FS
+    #include "usb_device.h"
+    #include "usbd_cdc_if.h"
+#endif /* USE_USB_CDC_FS */
+
 
 /*------------------------------------------------------------------------------
- Preprocesor Directives 
+ Preprocessor Directives 
 ------------------------------------------------------------------------------*/
+#ifdef USE_USB_CDC_FS
+    #define USB_FLUSH_RX_TIMEOUT_MS   10    /* Max wait to drain receive buffer  */
+    #define USB_FLUSH_TX_TIMEOUT_MS   10    /* Max wait for TX completion        */
+#endif /* USE_USB_CDC_FS */
 
 
 /*------------------------------------------------------------------------------
-Global Variables                                                                  
+ Global Variables                                                                  
 ------------------------------------------------------------------------------*/
 
 
@@ -63,157 +102,32 @@ Global Variables
  Procedures 
 ------------------------------------------------------------------------------*/
 
+/* Initializes the USB or UART driver based on build configuration */
+USB_STATUS usb_init(void)
+{   /* ==================== API implementation =================== */
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		usb_transmit_bytes                                                     *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		transmits a specified number of bytes over USB                         *
-*                                                                              *
-*******************************************************************************/
-USB_STATUS usb_transmit 
-	(
-    void*    tx_data_ptr , /* Data to be sent       */	
-	size_t   tx_data_size, /* Size of transmit data */ 
-	uint32_t timeout       /* UART timeout          */
-	)
-{
-/*------------------------------------------------------------------------------
- Local Variables
-------------------------------------------------------------------------------*/
-HAL_StatusTypeDef usb_status;
-
-
-/*------------------------------------------------------------------------------
- API Function Implementation 
-------------------------------------------------------------------------------*/
-
-/* Transmit byte */
-usb_status = HAL_UART_Transmit( &( USB_HUART ),
-                                tx_data_ptr   , 
-                                tx_data_size  , 
-                                timeout );
-
-/* Return HAL status */
-if ( usb_status != HAL_OK )
-	{
-	return usb_status;
-	}
-else
-	{
-	return USB_OK;
-	}
-
-} /* usb_transmit */
-
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		usb_receieve                                                           *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-* 	    Receives bytes from the USB port                                       *
-*                                                                              *
-*******************************************************************************/
-USB_STATUS usb_receive 
-	(
-	void*    rx_data_ptr , /* Buffer to export data to        */
-	size_t   rx_data_size, /* Size of the data to be received */
-	uint32_t timeout       /* UART timeout */
-	)
-{
-/*------------------------------------------------------------------------------
- Local Variables
-------------------------------------------------------------------------------*/
-HAL_StatusTypeDef usb_status;
-
-
-/*------------------------------------------------------------------------------
- API Function Implementation 
-------------------------------------------------------------------------------*/
-
-/* Transmit byte */
-usb_status = HAL_UART_Receive( &( USB_HUART ),
-                               rx_data_ptr   , 
-                               rx_data_size  , 
-                               timeout );
-
-/* Return HAL status */
-switch ( usb_status )
-	{
-	case HAL_TIMEOUT:
-		{	
-		return USB_TIMEOUT;
-		break;
-		}
-	case HAL_OK:
-		{
-		return USB_OK;
-		break;
-		}
-	default:
-		{
-		return USB_FAIL;
-		break;
+    #ifdef USE_USB_CDC_FS
+        /* Initialize Native USB CDC Middleware */
+        MX_USB_DEVICE_Init();
+        return USB_OK;
+    #else
+        /* For legacy mode, the global USB_HUART is initialized in main.c.
+        We can verify CubeMX assigned the base address. */
+        if (USB_HUART.Instance == NULL) {
+            return USB_FAIL;
         }
-	}
+        return USB_OK;
+    #endif
 
-} /* usb_receive */
+} /* usb_init */
 
-
-#if defined( A0002_REV2           ) || \
-    defined( FLIGHT_COMPUTER_LITE ) || \
-    defined( L0002_REV5           ) || \
-	defined( L0005_REV3           )
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		usb_detect                                                             *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-* 	    Detect a USB connection by checking the power on the USB 5V line       *
-*                                                                              *
-*******************************************************************************/
-bool usb_detect
-	(
-	void
-	)
-{
-/*------------------------------------------------------------------------------
- Local Variables
-------------------------------------------------------------------------------*/
-uint8_t usb_detect_pinstate;    /* USB detect state, return value from HAL    */
-
-
-/*------------------------------------------------------------------------------
- Initializations 
-------------------------------------------------------------------------------*/
-usb_detect_pinstate = 0;
-
-
-/*------------------------------------------------------------------------------
- API Function Implementation 
-------------------------------------------------------------------------------*/
-
-/* Read voltage on usb detect pin */
-usb_detect_pinstate = HAL_GPIO_ReadPin( USB_DETECT_GPIO_PORT, USB_DETECT_PIN );
-
-/* Set return value */
-if ( usb_detect_pinstate == 0 )
-	{
-	return false;
-	}
-else
-	{
-	return true;
-	}
-} /* usb_detect */
-#endif /* #if defined( A0002_REV2 ) || defined( FLIGHT_COMPUTER_LITE ) */
+#ifdef USE_USB_CDC_FS
+    #include "usb_cdc.c"
+#else
+    #include "usb_uart.c"
+#endif /* USE_USB_CDC_FS */
 
 
 /*******************************************************************************
-* END OF FILE                                                                  * 
+* END OF usb.c                                                                 *
 *******************************************************************************/

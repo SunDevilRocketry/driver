@@ -27,7 +27,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN Includes */
-
+#include "error_sdr.h"
 /* USER CODE END Includes */
 
 /* USER CODE BEGIN PV */
@@ -70,19 +70,15 @@ void MX_USB_DEVICE_Init(void)
   /* Init Device Library, add supported class and start the library. */
   if (USBD_Init(&hUsbDeviceHS, &HS_Desc, DEVICE_HS) != USBD_OK)
   {
-    Error_Handler();
+    Error_Handler(ERROR_USB_CDC_INIT_ERROR);
   }
   if (USBD_RegisterClass(&hUsbDeviceHS, &USBD_CDC) != USBD_OK)
   {
-    Error_Handler();
+    Error_Handler(ERROR_USB_CDC_INIT_ERROR);
   }
   if (USBD_CDC_RegisterInterface(&hUsbDeviceHS, &USBD_Interface_fops_HS) != USBD_OK)
   {
-    Error_Handler();
-  }
-  if (USBD_Start(&hUsbDeviceHS) != USBD_OK)
-  {
-    Error_Handler();
+    Error_Handler(ERROR_USB_CDC_INIT_ERROR);
   }
 
   /* USER CODE BEGIN USB_DEVICE_Init_PostTreatment */
