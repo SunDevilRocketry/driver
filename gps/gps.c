@@ -45,6 +45,7 @@
  Project Includes                                                               
 ------------------------------------------------------------------------------*/
 #include "main.h"
+#include "timer.h"
 #include "gps.h"
 #include <string.h>
 #include <stdlib.h>
@@ -58,10 +59,64 @@
 /*------------------------------------------------------------------------------
 Global Variables                                                                  
 ------------------------------------------------------------------------------*/
+static uint32_t gps_init_tick = 0;
 
 /*------------------------------------------------------------------------------
  Procedures 
 ------------------------------------------------------------------------------*/
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   *
+*       gps_check_ack                                                          *
+*                                                                              *
+* DESCRIPTION:                                                                 *
+*       Read and validate UBX ACK-ACK/ACK-NAK response                        *
+*       Returns GPS_OK on ACK-ACK, GPS_ERROR on ACK-NAK or timeout            *
+*                                                                              *
+*******************************************************************************/
+static GPS_STATUS gps_check_ack
+    (
+    void
+    )
+{
+/* local vars */
+uint8_t    ack_buf[10];
+GPS_STATUS gps_status;
+uint8_t  msg_class = 0x06;   /* expected class byte of the sent message */
+uint8_t  msg_id = 0x8A;      /* expected ID byte of the sent message */
+
+/* Read 10-byte ACK frame */
+gps_status = gps_receive( (void*)ack_buf, sizeof(ack_buf), GPS_DEFAULT_TIMEOUT * 10 );
+
+/* Validate preamble */
+if( ack_buf[0] != 0xB5 || ack_buf[1] != 0x62 )
+    {
+    return GPS_FAIL;
+    }
+
+/* Validate class is ACK (0x05) */
+if( ack_buf[2] != 0x05 )
+    {
+    return GPS_FAIL;
+    }
+
+/* Check ACK-ACK (0x01) vs ACK-NAK (0x00) */
+if( ack_buf[3] != 0x01 )
+    {
+    return GPS_FAIL;
+    }
+
+/* Validate the ACK refers to our message */
+if( ack_buf[6] != msg_class || ack_buf[7] != msg_id )
+    {
+    return GPS_FAIL;
+    }
+
+return gps_status;
+
+} /* gps_check_ack */
+
 
 /*******************************************************************************
 *                                                                              *
@@ -78,28 +133,106 @@ GPS_STATUS gps_init
     ) 
 {
 /* local vars */
-GPS_STATUS gps_status;
+GPS_STATUS gps_status = GPS_OK;
 
 /* magic byte sequences for init*/
 #include "gps_init.inc"
 
-while( HAL_GetTick() <= GPS_STARTUP_DELAY ); /* busy-wait until recommended startup delay */
+/* Trigger reset */
+HAL_GPIO_WritePin( GPS_RST_PORT, GPS_RST_PIN, GPIO_PIN_RESET );
+delay_ms( 10 );
+HAL_GPIO_WritePin( GPS_RST_PORT, GPS_RST_PIN, GPIO_PIN_SET );
+
+delay_ms( GPS_STARTUP_DELAY ); /* busy-wait until recommended startup delay */
+
+gps_init_tick = HAL_GetTick();
+
+static const uint8_t nmea_gns_poll[] = "$EIGNQ,GNS*21\r\n";
+volatile static uint8_t recv[80];
+gps_status |= gps_transmit
+    (
+    (void*)nmea_gns_poll,
+    sizeof( nmea_gns_poll ) - 1,
+    GPS_DEFAULT_TIMEOUT
+    );
+gps_status |= gps_receive(recv, 80, GPS_DEFAULT_TIMEOUT);
+
+/* Enter UBX config mode */
+gps_status |= gps_transmit
+    (
+    (void*)nmea_enable_ubx_input,
+    sizeof( nmea_enable_ubx_input ) - 1,
+    GPS_DEFAULT_TIMEOUT
+    );
 
 /* Set up UART baud */
-gps_status = gps_transmit
-    (
-    (void*)uart_baud_config, 
-    sizeof( uart_baud_config ), 
-    HAL_DEFAULT_TIMEOUT
-    ); /* must set GPS baud while on the default rate */
+// gps_status |= gps_transmit
+//     (
+//     (void*)uart_baud_config, 
+//     sizeof( uart_baud_config ), 
+//     HAL_DEFAULT_TIMEOUT * 10
+//     ); /* must set GPS baud while on the default rate */
+// gps_status |= gps_check_ack();
 
-gps_status |= HAL_UART_DeInit(&GPS_HUART); /* de-init the peripheral before reconfiguring */
-GPS_HUART.Init.BaudRate = 921600;
-gps_status |= HAL_UART_Init(&GPS_HUART); /* re-init the peripheral with the updated baud */
+// gps_status |= HAL_UART_DeInit(&GPS_HUART); /* de-init the peripheral before reconfiguring */
+// GPS_HUART.Init.BaudRate = 921600;
+// gps_status |= HAL_UART_Init(&GPS_HUART); /* re-init the peripheral with the updated baud */
+
+/* Set up voltage control */
+gps_status |= gps_transmit
+    (
+    (void*)volt_ctrl_config, 
+    sizeof( volt_ctrl_config ), 
+    GPS_DEFAULT_TIMEOUT
+    );
+gps_status |= gps_check_ack();
+
+/* Set up antenna powerdown */
+gps_status |= gps_transmit
+    (
+    (void*)ant_powerdown_disable, 
+    sizeof( ant_powerdown_disable ), 
+    GPS_DEFAULT_TIMEOUT
+    );
+gps_status |= gps_check_ack();
 
 return gps_status;
 
 } /* gps_init */
+
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   * 
+* 		gps_start                                                              *
+*                                                                              *
+* DESCRIPTION:                                                                 * 
+* 		Start receiving GPS messages.                                          *
+*                                                                              *
+*******************************************************************************/
+GPS_STATUS gps_start
+    (
+    uint8_t* gps_mesg_ptr /* pointer to global message byte */
+    )
+{
+/* Trigger GPS */
+GPS_STATUS gps_status = GPS_OK;
+gps_status = gps_receive_IT( gps_mesg_ptr, 1 );
+
+/* Determine status */
+if( gps_status != GPS_OK )
+    {
+    return gps_status;
+    }
+else if( gps_init_tick + GPS_RECEIVE_DELAY > HAL_GetTick() )
+    {
+    return GPS_BUSY;
+    }
+else
+    {
+    return GPS_OK;
+    }
+}
 
 
 /*******************************************************************************
@@ -325,7 +458,7 @@ token[6] = '\0';
 int idx = 7; /* Skips "$GPXXX,"*/
 
 /* Parse by message type */
-if (!strcmp(token, "$GPGGA")) 
+if (!strcmp(token, "$GPGGA") || !strcmp(token, "$GNGGA")) 
     {
     gps_ptr->utc_time = gps_string_to_float(GPSstrParse, &idx);
     gps_ptr->nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
@@ -339,7 +472,7 @@ if (!strcmp(token, "$GPGGA"))
     gps_ptr->msl_units = gps_string_to_char(GPSstrParse, &idx);
     gps_conv_latitude_longitude( gps_ptr );
     }
-else if (!strcmp(token, "$GPRMC")) 
+else if (!strcmp(token, "$GPRMC") || !strcmp(token, "$GNRMC")) 
     {
     gps_ptr->utc_time = gps_string_to_float(GPSstrParse, &idx);
     gps_ptr->rmc_status = gps_string_to_char(GPSstrParse, &idx); /* unused */
@@ -352,7 +485,7 @@ else if (!strcmp(token, "$GPRMC"))
     gps_ptr->date = (int)(0.5 + gps_string_to_float(GPSstrParse, &idx));
     gps_conv_latitude_longitude( gps_ptr );
     }
-else if (!strcmp(token, "$GPGLL")) 
+else if (!strcmp(token, "$GPGLL") || !strcmp(token, "$GNGLL")) 
     {
     gps_ptr->nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
     gps_ptr->ns = gps_string_to_char(GPSstrParse, &idx);
@@ -362,7 +495,7 @@ else if (!strcmp(token, "$GPGLL"))
     gps_ptr->gll_status = gps_string_to_char(GPSstrParse, &idx);
     gps_conv_latitude_longitude( gps_ptr );
     }
-else if (!strcmp(token, "$GPVTG")) 
+else if (!strcmp(token, "$GPVTG") || !strcmp(token, "$GNVTG")) 
     {
     gps_ptr->course_t = gps_string_to_float(GPSstrParse, &idx);
     gps_ptr->course_t_unit = gps_string_to_char(GPSstrParse, &idx);

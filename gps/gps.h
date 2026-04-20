@@ -32,9 +32,11 @@ extern "C" {
 /*------------------------------------------------------------------------------
  Includes 
 ------------------------------------------------------------------------------*/
+#define GPS_DEFAULT_TIMEOUT 300 /* GPS default UART timeout   */
 #define GPSBUFSIZE  128         /* GPS buffer size (bytes)    */
 #define GPS_STARTUP_DELAY 500   /* startup delay (ms)         */
-
+#define GPS_RECEIVE_DELAY 24000 /* delay before first receive 
+                                                         (ms) */
 
 /*------------------------------------------------------------------------------
  Typdefs 
@@ -83,13 +85,26 @@ typedef enum GPS_STATUS
 	{
 	GPS_OK = 0,
     GPS_FAIL  ,
-	GPS_TIMEOUT
+	GPS_TIMEOUT,
+    GPS_BUSY
 	} GPS_STATUS;
 
 
 /*------------------------------------------------------------------------------
  Function Prototypes 
 ------------------------------------------------------------------------------*/
+
+/* Configure the GPS module */
+GPS_STATUS gps_init
+    (
+    void
+    );
+
+/* start the GPS receive loop */
+GPS_STATUS gps_start
+    (
+    uint8_t* gps_mesg_ptr /* pointer to global message byte */
+    );
 
 /* transmits bytes over USB */
 GPS_STATUS gps_transmit 
