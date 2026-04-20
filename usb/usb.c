@@ -164,6 +164,102 @@ switch ( usb_status )
 } /* usb_receive */
 
 
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   * 
+* 		usb_transmit_IT                                                        *
+*                                                                              *
+* DESCRIPTION:                                                                 * 
+* 		transmits a specified number of bytes over USB                         *
+*                                                                              *
+*******************************************************************************/
+USB_STATUS usb_transmit_IT 
+	(
+    void*    tx_data_ptr , /* Data to be sent       */	
+	size_t   tx_data_size  /* Size of transmit data */ 
+	)
+{
+/*------------------------------------------------------------------------------
+ Local Variables
+------------------------------------------------------------------------------*/
+HAL_StatusTypeDef usb_status;
+
+
+/*------------------------------------------------------------------------------
+ API Function Implementation 
+------------------------------------------------------------------------------*/
+
+/* Transmit byte */
+usb_status = HAL_UART_Transmit_IT( &( USB_HUART ),
+                                tx_data_ptr   , 
+                                tx_data_size );
+
+/* Return HAL status */
+if ( usb_status != HAL_OK )
+	{
+	return usb_status;
+	}
+else
+	{
+	return USB_OK;
+	}
+
+} /* usb_transmit */
+
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   *
+* 		usb_receive_IT                                                         *
+*                                                                              *
+* DESCRIPTION:                                                                 *
+* 	    Receives bytes from the USB port                                       *
+*                                                                              *
+*******************************************************************************/
+USB_STATUS usb_receive_IT 
+	(
+	void*    rx_data_ptr , /* Buffer to export data to        */
+	size_t   rx_data_size  /* Size of the data to be received */
+	)
+{
+/*------------------------------------------------------------------------------
+ Local Variables
+------------------------------------------------------------------------------*/
+HAL_StatusTypeDef usb_status;
+
+
+/*------------------------------------------------------------------------------
+ API Function Implementation 
+------------------------------------------------------------------------------*/
+
+/* Transmit byte */
+usb_status = HAL_UART_Receive_IT( &( USB_HUART ),
+                               rx_data_ptr   , 
+                               rx_data_size );
+
+/* Return HAL status */
+switch ( usb_status )
+	{
+	case HAL_TIMEOUT:
+		{	
+		return USB_TIMEOUT;
+		break;
+		}
+	case HAL_OK:
+		{
+		return USB_OK;
+		break;
+		}
+	default:
+		{
+		return USB_FAIL;
+		break;
+        }
+	}
+
+} /* usb_receive */
+
+
 #if defined( A0002_REV2           ) || \
     defined( FLIGHT_COMPUTER_LITE ) || \
     defined( L0002_REV5           ) || \
