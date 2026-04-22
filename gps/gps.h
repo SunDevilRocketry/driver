@@ -32,7 +32,7 @@ extern "C" {
 /*------------------------------------------------------------------------------
  Includes 
 ------------------------------------------------------------------------------*/
-#define GPS_DEFAULT_TIMEOUT 300 /* GPS default UART timeout   */
+#define GPS_DEFAULT_TIMEOUT 500 /* GPS default UART timeout   */
 #define GPSBUFSIZE  128         /* GPS buffer size (bytes)    */
 #define GPS_STARTUP_DELAY 500   /* startup delay (ms)         */
 #define GPS_RECEIVE_DELAY 24000 /* delay before first receive 

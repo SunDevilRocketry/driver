@@ -47,6 +47,7 @@
 #include "main.h"
 #include "timer.h"
 #include "gps.h"
+#include "led.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -147,23 +148,23 @@ delay_ms( GPS_STARTUP_DELAY ); /* busy-wait until recommended startup delay */
 
 gps_init_tick = HAL_GetTick();
 
-static const uint8_t nmea_gns_poll[] = "$EIGNQ,GNS*21\r\n";
-volatile static uint8_t recv[80];
-gps_status |= gps_transmit
-    (
-    (void*)nmea_gns_poll,
-    sizeof( nmea_gns_poll ) - 1,
-    GPS_DEFAULT_TIMEOUT
-    );
-gps_status |= gps_receive(recv, 80, GPS_DEFAULT_TIMEOUT);
+// static const uint8_t nmea_gns_poll[] = "$EIGNQ,GNS*21\r\n";
+// volatile static uint8_t recv[80];
+// gps_status |= gps_transmit
+//     (
+//     (void*)nmea_gns_poll,
+//     sizeof( nmea_gns_poll ) - 1,
+//     GPS_DEFAULT_TIMEOUT
+//     );
+// gps_status |= gps_receive(recv, 80, GPS_DEFAULT_TIMEOUT);
 
-/* Enter UBX config mode */
-gps_status |= gps_transmit
-    (
-    (void*)nmea_enable_ubx_input,
-    sizeof( nmea_enable_ubx_input ) - 1,
-    GPS_DEFAULT_TIMEOUT
-    );
+// /* Enter UBX config mode */
+// gps_status |= gps_transmit
+//     (
+//     (void*)nmea_enable_ubx_input,
+//     sizeof( nmea_enable_ubx_input ) - 1,
+//     GPS_DEFAULT_TIMEOUT
+//     );
 
 /* Set up UART baud */
 // gps_status |= gps_transmit
@@ -177,24 +178,6 @@ gps_status |= gps_transmit
 // gps_status |= HAL_UART_DeInit(&GPS_HUART); /* de-init the peripheral before reconfiguring */
 // GPS_HUART.Init.BaudRate = 921600;
 // gps_status |= HAL_UART_Init(&GPS_HUART); /* re-init the peripheral with the updated baud */
-
-/* Set up voltage control */
-gps_status |= gps_transmit
-    (
-    (void*)volt_ctrl_config, 
-    sizeof( volt_ctrl_config ), 
-    GPS_DEFAULT_TIMEOUT
-    );
-gps_status |= gps_check_ack();
-
-/* Set up antenna powerdown */
-gps_status |= gps_transmit
-    (
-    (void*)ant_powerdown_disable, 
-    sizeof( ant_powerdown_disable ), 
-    GPS_DEFAULT_TIMEOUT
-    );
-gps_status |= gps_check_ack();
 
 return gps_status;
 
@@ -505,6 +488,10 @@ else if (!strcmp(token, "$GPVTG") || !strcmp(token, "$GNVTG"))
     gps_ptr->speed_k_unit = gps_string_to_char(GPSstrParse, &idx);
     gps_ptr->speed_km = gps_string_to_float(GPSstrParse, &idx);
     gps_ptr->speed_km_unit = gps_string_to_char(GPSstrParse, &idx);
+    }
+else if (!strcmp(token, "$GPTXT") || !strcmp(token, "$GNTXT"))
+    {
+    led_set_color( LED_WHITE );
     }
 } /* GPS_parse */
 
