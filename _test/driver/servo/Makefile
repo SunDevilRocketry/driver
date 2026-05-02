@@ -37,6 +37,7 @@ LIB_DIR = $(ROOT_DIR)/lib
 MOD_DIR = $(ROOT_DIR)/mod
 INIT_DIR = $(ROOT_DIR)/init
 DRIVER_DIR = $(ROOT_DIR)/driver
+TEST_DIR = ../../
 
 ################################################################
 # source 
@@ -55,8 +56,8 @@ $(ROOT_DIR)/driver/servo/servo.c
 
 # Framework
 FRAMEWORK_SOURCES =												  \
-$(ROOT_DIR)/test/framework/src/test_assert.c          	  		  \
-$(ROOT_DIR)/test/framework/src/test_runner.c
+$(TEST_DIR)/framework/src/test_assert.c          	  		  \
+$(TEST_DIR)/framework/src/test_runner.c
 
 C_SOURCES = $(TEST_SOURCES) $(COV_C_SOURCES) $(FRAMEWORK_SOURCES)
 
@@ -87,8 +88,8 @@ C_INCLUDES =                                           \
 -I$(LIB_DIR)/Drivers/CMSIS/Device/ST/STM32H7xx/Include \
 -I$(LIB_DIR)/Drivers/CMSIS/Include                     \
 -I$(ROOT_DIR)/init/rev2/config/Inc			   \
--I$(ROOT_DIR)/test/framework/src                       \
--I$(ROOT_DIR)/test/driver/servo/mock
+-I$(TEST_DIR)/framework/src                       \
+-I$(TEST_DIR)/driver/servo/mock
 
 # Preprocessor definitions
 # Don't worry about the defs and flags unless you know what you're doing

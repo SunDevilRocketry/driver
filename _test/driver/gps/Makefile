@@ -39,6 +39,8 @@ INIT_DIR = $(ROOT_DIR)/init
 
 DRIVER_DIR = $(ROOT_DIR)/driver
 
+TEST_DIR = ../../
+
 
 ################################################################
 # source 
@@ -55,8 +57,8 @@ $(ROOT_DIR)/driver/gps/gps.c
 
 # Framework
 FRAMEWORK_SOURCES =												  \
-$(ROOT_DIR)/test/framework/src/test_assert.c          	  		  \
-$(ROOT_DIR)/test/framework/src/test_runner.c
+$(TEST_DIR)/framework/src/test_assert.c          	  		  \
+$(TEST_DIR)/framework/src/test_runner.c
 
 C_SOURCES = $(TEST_SOURCES) $(COV_C_SOURCES) $(FRAMEWORK_SOURCES)
 
@@ -83,8 +85,8 @@ C_INCLUDES =                                           \
 -I$(LIB_DIR)/Drivers/CMSIS/Include                     \
 -I$(ROOT_DIR)/init/rev2/config/Inc				   \
 -I$(INIT_DIR)/config/Inc                               \
--I$(ROOT_DIR)/test/framework/src				   	   \
--I$(ROOT_DIR)/test/driver/gps/mock/
+-I$(TEST_DIR)/framework/src				   	   \
+-I$(TEST_DIR)/driver/gps/mock/
 
 # Preprocessor definitions
 C_DEFS =         \
