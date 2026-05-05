@@ -4,6 +4,16 @@
   * @file           : usbd_cdc_if.c
   * @version        : v1.0_Cube
   * @brief          : Usb device for Virtual Com Port.
+  * @note  The blocking behavior is achieved through two mechanisms:
+  *
+  *        Circular Buffer: A 2048-byte buffer in CDC_Receive_HS captures all
+  *        incoming data from the USB interrupt, allowing the main loop to read
+  *        at its own pace via VCP_Read_Byte.
+  *
+  *        Deadlock Prevention: If a transmission is interrupted by a cable
+  *        disconnect, VCP_Force_Unlock resets TxState to prevent the firmware
+  *        from hanging on the next transmit attempt.
+  *
   ******************************************************************************
   * @attention
   *
@@ -31,7 +41,10 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-
+#define USB_RX_BUF_SIZE 2048
+static uint8_t  USB_Internal_RxBuffer[USB_RX_BUF_SIZE];
+static uint32_t USB_Internal_RxHead = 0;
+static uint32_t USB_Internal_RxTail = 0;
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -264,6 +277,21 @@ static int8_t CDC_Control_HS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_HS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 11 */
+  /* Copy incoming data into circular buffer */
+  for (uint32_t i = 0; i < *Len; i++) {
+      uint32_t next_head = (USB_Internal_RxHead + 1) % USB_RX_BUF_SIZE;
+        
+      if (next_head == USB_Internal_RxTail) {
+          /* Buffer full - override oldest byte and advance tail */
+          USB_Internal_RxTail = (USB_Internal_RxTail + 1) % USB_RX_BUF_SIZE;
+      }
+
+      USB_Internal_RxBuffer[USB_Internal_RxHead] = Buf[i];
+      USB_Internal_RxHead = next_head;
+      
+  }
+
+  /* Signal to USB hardware that we are ready for the next packet */
   USBD_CDC_SetRxBuffer(&hUsbDeviceHS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceHS);
   return (USBD_OK);
@@ -316,6 +344,83 @@ static int8_t CDC_TransmitCplt_HS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
 
+
+/**
+  * @brief  Pulls one byte from the internal circular receive buffer.
+  * @retval int16_t: The byte value (0-255), or -1 if the buffer is empty.
+  */
+int16_t VCP_Read_Byte(void) 
+{
+    if (USB_Internal_RxHead == USB_Internal_RxTail) {
+        return -1; /* Buffer is empty */
+    }
+    
+    /* Grab the oldest byte currently in the buffer, then advance the tail
+     * pointer forward by one, wrapping back to 0 if the end is reached. */
+    uint8_t b = USB_Internal_RxBuffer[USB_Internal_RxTail]; 
+    USB_Internal_RxTail = (USB_Internal_RxTail + 1) % USB_RX_BUF_SIZE;
+    return (int16_t)b;
+}
+
+/**
+  * @brief  Checks if the USB CDC interface is currently busy transmitting.
+  * @retval uint8_t: 1 if busy (or uninitialized), 0 if ready to transmit.
+  */
+uint8_t VCP_Is_Busy(void) 
+{
+    /* Guard against transmit attempts before middleware initialization */
+    if (hUsbDeviceHS.pClassData == NULL) {
+        return 1; 
+    }
+    
+    USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceHS.pClassData;
+    return (hcdc->TxState != 0) ? 1 : 0;
+}
+
+/**
+  * @brief  Calculates the number of unread bytes in the circular buffer.
+  * @retval uint16_t: Number of available bytes.
+  */
+uint16_t VCP_Bytes_Available(void) 
+{
+    if (USB_Internal_RxHead >= USB_Internal_RxTail) {
+        return (USB_Internal_RxHead - USB_Internal_RxTail);
+    } else {
+        return (USB_RX_BUF_SIZE - USB_Internal_RxTail + USB_Internal_RxHead);
+    }
+}
+
+/**
+  * @brief  Resets the USB CDC transmit state to idle.
+  * @note   Safe to call, uses atomic write operation on ARM Cortex-M.
+  * @retval None
+  */
+void VCP_Force_Unlock(void)
+{
+    if (hUsbDeviceHS.pClassData != NULL) {
+        USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceHS.pClassData;
+        
+        /* Writing a single byte/word is atomic on Cortex-M.
+         * No interrupt disable needed as a missed status update will be
+         * corrected on the next transmission attempt. */
+        hcdc->TxState = 0;
+    }
+}
+
+/**
+  * @brief  Clears the internal receive buffer by resetting head/tail pointers.
+  * @note   Uses __disable_irq() for pointer consistency. Global IRQ disable —
+  *         use with caution near PWM or timer-sensitive contexts.
+  * @retval None
+  */
+void VCP_Clear_RxBuffer(void)
+{
+    __disable_irq();
+    USB_Internal_RxHead = 0;
+    USB_Internal_RxTail = 0;
+    __enable_irq();
+}
+
 /* USER CODE END PRIVATE_FUNCTIONS_IMPLEMENTATION */
 
 /**
@@ -325,3 +430,4 @@ static int8_t CDC_TransmitCplt_HS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 /**
   * @}
   */
+
