@@ -5,7 +5,12 @@
 *
 * DESCRIPTION: 
 * 		Contains API functions for writing and reading data from the engine 
-*       controller's flash 
+*       controller's flash.
+*
+* NOTE:
+*		This is the "legacy" flash driver for the 4MBit
+*		SST25VF040B-50-4I-S2AE-T flash chip used on old liquids & flight 
+*		boards.
 *
 * COPYRIGHT:                                                                   
 *       Copyright (c) 2025 Sun Devil Rocketry.                                 
