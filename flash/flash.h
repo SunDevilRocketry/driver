@@ -42,12 +42,17 @@ Includes
 #include "sensor.h"
 #endif
 
+/* Aliasing -- choose implementation */
+#ifndef A0010
+#define USE_LEGACY_FLASH_DRIVER
+#endif
+
 
 /*------------------------------------------------------------------------------
  Macros 
 ------------------------------------------------------------------------------*/
 
-#ifndef A0010
+#ifdef USE_LEGACY_FLASH_DRIVER
     /* Flash subcommand bitmasks */
     #define FLASH_SUBCMD_OP_BITMASK     0b11100000 
     #define FLASH_NBYTES_BITMASK        0b00011111
@@ -117,6 +122,8 @@ Includes
     #define FLASH_BLOCK14_ADDR         0x070000
     #define FLASH_BLOCK15_ADDR         0x078000
 #else
+    /* Utility Macros */
+    #define HAL_FLASH_TIMEOUT           100
     /* Config Commands */
     #define FLASH_WRITE_ENABLE_CMD      0x06
     #define FLASH_WRITE_DISABLE_CMD     0x04
@@ -134,6 +141,16 @@ Includes
     #define FLASH_SECTOR_ERASE_4KB_CMD  0x21
     #define FLASH_BLOCK_ERASE_32KB_CMD  0x5C
     #define FLASH_BLOCK_ERASE_64KB_CMD  0xDC
+
+    /* Status Register Bitmasks */
+    #define FLASH_STATUS_REG_WRITE_PROTECTED 0b10000000
+    #define FLASH_STATUS_REG_QUAD_ENABLED    0b01000000
+    #define FLASH_STATUS_REG_BP3             0b00100000
+    #define FLASH_STATUS_REG_BP2             0b00010000
+    #define FLASH_STATUS_REG_BP1             0b00001000
+    #define FLASH_STATUS_REG_BP0             0b00000100
+    #define FLASH_STATUS_REG_WEL             0b00000010
+    #define FLASH_STATUS_REG_WIP             0b00000001
 #endif
 
 
@@ -176,11 +193,13 @@ typedef struct _FLASH_BUFFER_TAG {
     /* Write protection state */
     bool           write_protected;
 
+    #ifdef USE_LEGACY_FLASH_DRIVER
 	/* BPL settings for block protection */
 	FLASH_BPL_BITS bpl_bits;
 
 	/* Write protection setting of flash BPL bits */
 	FLASH_BPL_WP   bpl_write_protect;
+    #endif
 
 	/* Contents of status register */
 	uint8_t        status_register;
@@ -290,6 +309,7 @@ bool flash_is_flash_busy
 	void
 	);
 
+#ifdef USE_LEGACY_FLASH_DRIVER
 /* Enable writing to the external flash chip */
 void flash_write_enable 
     (
@@ -301,6 +321,7 @@ void flash_write_disable
     (
     void  
     );
+#endif
 
 /* Write bytes from a flash buffer to the external flash */
 FLASH_STATUS flash_write
