@@ -123,7 +123,11 @@ Includes
     #define FLASH_BLOCK15_ADDR         0x078000
 #else
     /* Utility Macros */
-    #define HAL_FLASH_TIMEOUT           100
+    #define FLASH_TIMEOUT_DEFAULT       100
+    #define FLASH_TIMEOUT_ERASE         1000
+    #define FLASH_READ_DUMMY_CYCLES     8
+    #define FLASH_PAGE_SIZE             256
+    #define FLASH_MAX_ADDR              0x03FFFFFF
     /* Config Commands */
     #define FLASH_WRITE_ENABLE_CMD      0x06
     #define FLASH_WRITE_DISABLE_CMD     0x04
@@ -135,8 +139,8 @@ Includes
     #define FLASH_ENABLE_4BYTE_ADDR_CMD 0xB7
     #define FLASH_SET_BURST_LENGTH_CMD  0xC0
     /* I/O Commands */
-    #define FLASH_READ_CMD              0xEC
-    #define FLASH_PAGE_WRITE_CMD        0x12
+    #define FLASH_READ_CMD              0x6B
+    #define FLASH_PAGE_PROGRAM_CMD      0x12
     #define FLASH_CHIP_ERASE_CMD        0xC7
     #define FLASH_SECTOR_ERASE_4KB_CMD  0x21
     #define FLASH_BLOCK_ERASE_32KB_CMD  0x5C
@@ -246,6 +250,7 @@ typedef enum FLASH_STATUS
 	} FLASH_STATUS;
 
 /* Flash Block Numbers */
+#ifdef USE_LEGACY_FLASH_DRIVER
 typedef enum _FLASH_BLOCK
 	{
 	FLASH_BLOCK_0 = 0,
@@ -262,8 +267,11 @@ typedef enum _FLASH_BLOCK
 	FLASH_BLOCK_12   ,
 	FLASH_BLOCK_13   ,
 	FLASH_BLOCK_14   ,
-	FLASH_BLOCK_15    
+	FLASH_BLOCK_15   ,
 	}  FLASH_BLOCK;
+#else
+typedef uint32_t FLASH_BLOCK;
+#endif
 
 /* Flash Block Sizes */
 typedef enum _FLASH_BLOCK_SIZE
