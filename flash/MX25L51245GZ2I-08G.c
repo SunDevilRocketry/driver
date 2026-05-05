@@ -409,6 +409,81 @@ return FLASH_OK;
 } /* flash_read */
 
 
+FLASH_STATUS flash_is_flash_busy
+    (
+    HFLASH_BUFFER* pflash_handle
+    ) 
+{
+if ( flash_get_status( pflash_handle ) != FLASH_OK )
+    {
+    return FLASH_FAIL;
+    }
+else if ( ( pflash_handle->status_register & FLASH_STATUS_REG_WIP ) == 0u )
+    {
+    return FLASH_OK;
+    }
+else
+    {
+    return FLASH_IN_PROGRESS;
+    }
+}
+
+
+/**
+ * @brief Retrieve the status register on the flash peripheral.
+ * 
+ * @param pflash_handle A pointer to the flash handle object to be used for the operation.
+ * @retval The status of the flash peripheral.
+ */
+FLASH_STATUS flash_get_status
+    (
+    HFLASH_BUFFER* pflash_handle
+    )
+{
+/* Initializations */
+HAL_StatusTypeDef hal_status = HAL_OK;
+OSPI_RegularCmdTypeDef spi_command = {0};
+
+if ( pflash_handle == NULL )
+    {
+    return FLASH_INVALID_INPUT;
+    }
+
+/* Construct "Read Status Register" command */
+spi_command.OperationType = HAL_OSPI_OPTYPE_COMMON_CFG;
+spi_command.FlashId = HAL_OSPI_FLASH_ID_1;
+spi_command.Instruction = FLASH_READ_STATUS_REG_CMD;
+spi_command.InstructionMode = HAL_OSPI_INSTRUCTION_1_LINE;
+spi_command.InstructionSize = HAL_OSPI_INSTRUCTION_8_BITS;
+spi_command.InstructionDtrMode = HAL_OSPI_INSTRUCTION_DTR_DISABLE;
+spi_command.AddressMode = HAL_OSPI_ADDRESS_NONE;
+spi_command.AddressDtrMode = HAL_OSPI_ADDRESS_DTR_DISABLE;
+spi_command.AlternateBytesMode = HAL_OSPI_ALTERNATE_BYTES_NONE;
+spi_command.AlternateBytesDtrMode = HAL_OSPI_ALTERNATE_BYTES_DTR_DISABLE;
+spi_command.DataMode = HAL_OSPI_DATA_1_LINE;
+spi_command.NbData = 1;
+spi_command.DataDtrMode = HAL_OSPI_DATA_DTR_DISABLE;
+spi_command.DummyCycles = 0;
+spi_command.DQSMode = HAL_OSPI_DQS_DISABLE;
+spi_command.SIOOMode = HAL_OSPI_SIOO_INST_EVERY_CMD;
+
+hal_status = HAL_OSPI_Command(&FLASH_OSPI, &spi_command, FLASH_TIMEOUT_DEFAULT);
+if ( hal_status != HAL_OK )
+    {
+    return FLASH_FAIL;
+    }
+
+hal_status = HAL_OSPI_Receive(&FLASH_OSPI, &(pflash_handle->status_register), FLASH_TIMEOUT_DEFAULT);
+if ( hal_status != HAL_OK )
+    {
+    return FLASH_FAIL;
+    }
+
+return FLASH_OK;
+
+} /* flash_get_status */
+
+
 /**
  * @brief Enable QSPI mode on the flash peripheral.
  * 
@@ -502,61 +577,6 @@ else
 
 
 /**
- * @brief Retrieve the status register on the flash peripheral.
- * 
- * @param pflash_handle A pointer to the flash handle object to be used for the operation.
- * @retval The status of the flash peripheral.
- */
-FLASH_STATUS flash_get_status
-    (
-    HFLASH_BUFFER* pflash_handle
-    )
-{
-/* Initializations */
-HAL_StatusTypeDef hal_status = HAL_OK;
-OSPI_RegularCmdTypeDef spi_command = {0};
-
-if ( pflash_handle == NULL )
-    {
-    return FLASH_INVALID_INPUT;
-    }
-
-/* Construct "Read Status Register" command */
-spi_command.OperationType = HAL_OSPI_OPTYPE_COMMON_CFG;
-spi_command.FlashId = HAL_OSPI_FLASH_ID_1;
-spi_command.Instruction = FLASH_READ_STATUS_REG_CMD;
-spi_command.InstructionMode = HAL_OSPI_INSTRUCTION_1_LINE;
-spi_command.InstructionSize = HAL_OSPI_INSTRUCTION_8_BITS;
-spi_command.InstructionDtrMode = HAL_OSPI_INSTRUCTION_DTR_DISABLE;
-spi_command.AddressMode = HAL_OSPI_ADDRESS_NONE;
-spi_command.AddressDtrMode = HAL_OSPI_ADDRESS_DTR_DISABLE;
-spi_command.AlternateBytesMode = HAL_OSPI_ALTERNATE_BYTES_NONE;
-spi_command.AlternateBytesDtrMode = HAL_OSPI_ALTERNATE_BYTES_DTR_DISABLE;
-spi_command.DataMode = HAL_OSPI_DATA_1_LINE;
-spi_command.NbData = 1;
-spi_command.DataDtrMode = HAL_OSPI_DATA_DTR_DISABLE;
-spi_command.DummyCycles = 0;
-spi_command.DQSMode = HAL_OSPI_DQS_DISABLE;
-spi_command.SIOOMode = HAL_OSPI_SIOO_INST_EVERY_CMD;
-
-hal_status = HAL_OSPI_Command(&FLASH_OSPI, &spi_command, FLASH_TIMEOUT_DEFAULT);
-if ( hal_status != HAL_OK )
-    {
-    return FLASH_FAIL;
-    }
-
-hal_status = HAL_OSPI_Receive(&FLASH_OSPI, &(pflash_handle->status_register), FLASH_TIMEOUT_DEFAULT);
-if ( hal_status != HAL_OK )
-    {
-    return FLASH_FAIL;
-    }
-
-return FLASH_OK;
-
-} /* flash_get_status */
-
-
-/**
  * @brief Enable four-byte addresses on the flash peripheral.
  * 
  * @retval The status of the flash peripheral.
@@ -619,7 +639,7 @@ while ( true )
     {
     if ( flash_get_status( &handle ) != FLASH_OK )
         {
-        return FLASH_SPI_ERROR;
+        return FLASH_FAIL;
         }
 
     if ( ( handle.status_register & FLASH_STATUS_REG_WIP ) == 0u )

@@ -229,6 +229,7 @@ typedef enum FLASH_STATUS
 	{
 	FLASH_OK = 0              ,
 	FLASH_FAIL                ,
+    FLASH_IN_PROGRESS         ,
 	FLASH_UNSUPPORTED_OP      ,
 	FLASH_UNRECOGNIZED_OP     ,
 	FLASH_TIMEOUT             ,
@@ -311,13 +312,13 @@ FLASH_STATUS flash_set_status
 	uint8_t        flash_status
     );
 
+#ifdef USE_LEGACY_FLASH_DRIVER
 /* Check if the flash chip is ready for write operations */
 bool flash_is_flash_busy
 	(
 	void
 	);
 
-#ifdef USE_LEGACY_FLASH_DRIVER
 /* Enable writing to the external flash chip */
 void flash_write_enable 
     (
@@ -328,6 +329,12 @@ void flash_write_enable
 void flash_write_disable
     (
     void  
+    );
+#else
+/* Returns FLASH_IN_PROGRESS if the chip is currently programming. */
+FLASH_STATUS flash_is_flash_busy
+    (
+    HFLASH_BUFFER* pflash_handle
     );
 #endif
 
