@@ -384,9 +384,9 @@ IMU_STATUS imu_get_gyro_xyz
  Local variables 
 ------------------------------------------------------------------------------*/
 uint8_t     regGyro[6];   /* Bytes from gyro registers */
-uint16_t    gyro_x_raw;   /* Raw gyro sensor readouts  */
-uint16_t    gyro_y_raw; 
-uint16_t    gyro_z_raw; 
+int16_t    gyro_x_raw;    /* Raw gyro sensor readouts  */
+int16_t    gyro_y_raw; 
+int16_t    gyro_z_raw; 
 IMU_STATUS  imu_status;   /* IMU status return codes   */
 
 
@@ -417,9 +417,9 @@ if ( imu_status != IMU_OK )
     gyro_y_raw = ( (uint16_t) regGyro[0] ) << 8 | regGyro[1];
     gyro_z_raw = ( (uint16_t) regGyro[0] ) << 8 | regGyro[1];
 #elif defined( A0002_REV2 )
-    gyro_x_raw = ( (uint16_t) regGyro[1] ) << 8 | regGyro[0];
-    gyro_y_raw = ( (uint16_t) regGyro[3] ) << 8 | regGyro[2];
-    gyro_z_raw = ( (uint16_t) regGyro[5] ) << 8 | regGyro[4];
+    gyro_x_raw = ( (int16_t) regGyro[1] ) << 8 | regGyro[0];
+    gyro_y_raw = ( (int16_t) regGyro[3] ) << 8 | regGyro[2];
+    gyro_z_raw = ( (int16_t) regGyro[5] ) << 8 | regGyro[4];
 #endif
 
 /* Export Sensor Readouts */
@@ -451,12 +451,12 @@ IMU_STATUS imu_get_accel_and_gyro
  Local variables 
 ------------------------------------------------------------------------------*/
 uint8_t     regRaw[12];  /* Bytes from raw registers */
-uint16_t    accel_x_raw;   /* Raw accel sensor readouts  */
-uint16_t    accel_y_raw; 
-uint16_t    accel_z_raw; 
-uint16_t    gyro_x_raw;   /* Raw gyro sensor readouts  */
-uint16_t    gyro_y_raw; 
-uint16_t    gyro_z_raw; 
+int16_t    accel_x_raw;   /* Raw accel sensor readouts  */
+int16_t    accel_y_raw; 
+int16_t    accel_z_raw; 
+int16_t    gyro_x_raw;    /* Raw gyro sensor readouts  */
+int16_t    gyro_y_raw; 
+int16_t    gyro_z_raw; 
 IMU_STATUS  imu_status;   /* IMU status return codes   */
 
 
@@ -477,12 +477,12 @@ if ( imu_status != IMU_OK )
 	}
 
 /* Combine high byte and low byte to 16 bit data  */
-accel_x_raw = ( (uint16_t) regRaw[1] ) << 8 | regRaw[0];
-accel_y_raw = ( (uint16_t) regRaw[3] ) << 8 | regRaw[2];
-accel_z_raw = ( (uint16_t) regRaw[5] ) << 8 | regRaw[4];
-gyro_x_raw = ( (uint16_t) regRaw[7] ) << 8 | regRaw[6];
-gyro_y_raw = ( (uint16_t) regRaw[9] ) << 8 | regRaw[8];
-gyro_z_raw = ( (uint16_t) regRaw[11] ) << 8 | regRaw[10];
+accel_x_raw = ( (int16_t) regRaw[1] ) << 8 | regRaw[0];
+accel_y_raw = ( (int16_t) regRaw[3] ) << 8 | regRaw[2];
+accel_z_raw = ( (int16_t) regRaw[5] ) << 8 | regRaw[4];
+gyro_x_raw = ( (int16_t) regRaw[7] ) << 8 | regRaw[6];
+gyro_y_raw = ( (int16_t) regRaw[9] ) << 8 | regRaw[8];
+gyro_z_raw = ( (int16_t) regRaw[11] ) << 8 | regRaw[10];
 
 /* Export Sensor Readouts */
 pIMU->accel_x = accel_x_raw;
@@ -1137,12 +1137,12 @@ if( !imu_data_ready && !mag_data_ready )
     Handle IT signal
     ------------------------------------------------------------------------------*/
     /* Combine high byte and low byte to 16 bit data  */
-    imu_raw_processed.accel_x = ( (uint16_t) imu_raw_buffer[1] ) << 8 | imu_raw_buffer[0];
-    imu_raw_processed.accel_y = ( (uint16_t) imu_raw_buffer[3] ) << 8 | imu_raw_buffer[2];
-    imu_raw_processed.accel_z = ( (uint16_t) imu_raw_buffer[5] ) << 8 | imu_raw_buffer[4];
-    imu_raw_processed.gyro_x = ( (uint16_t) imu_raw_buffer[7] ) << 8 | imu_raw_buffer[6];
-    imu_raw_processed.gyro_y = ( (uint16_t) imu_raw_buffer[9] ) << 8 | imu_raw_buffer[8];
-    imu_raw_processed.gyro_z = ( (uint16_t) imu_raw_buffer[11] ) << 8 | imu_raw_buffer[10];
+    imu_raw_processed.accel_x = ( (int16_t) imu_raw_buffer[1] ) << 8 | imu_raw_buffer[0];
+    imu_raw_processed.accel_y = ( (int16_t) imu_raw_buffer[3] ) << 8 | imu_raw_buffer[2];
+    imu_raw_processed.accel_z = ( (int16_t) imu_raw_buffer[5] ) << 8 | imu_raw_buffer[4];
+    imu_raw_processed.gyro_x = ( (int16_t) imu_raw_buffer[7] ) << 8 | imu_raw_buffer[6];
+    imu_raw_processed.gyro_y = ( (int16_t) imu_raw_buffer[9] ) << 8 | imu_raw_buffer[8];
+    imu_raw_processed.gyro_z = ( (int16_t) imu_raw_buffer[11] ) << 8 | imu_raw_buffer[10];
 
     imu_data_ready = true;
 
