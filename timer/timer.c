@@ -112,6 +112,27 @@ micro_tim_wraparounds++;
 
 } /* micro_tim_IT_handler */
 
+
+/**
+ * @brief Gets the current time since epoch (startup).
+ */
+SYSTEM_TIME get_system_time
+    (
+    void
+    )
+{
+uint32_t systick = HAL_GetTick();
+SYSTEM_TIME retval;
+
+retval.millis = (uint16_t)(systick % MILLISEC_PER_SEC);
+retval.secs = (uint8_t)((systick / MILLISEC_PER_SEC) % SEC_PER_MIN);
+retval.mins = (uint8_t)((systick / (MILLISEC_PER_SEC * SEC_PER_MIN)) % MIN_PER_HOUR);
+retval.hours = (uint16_t)((systick / (MILLISEC_PER_SEC * SEC_PER_MIN * MIN_PER_HOUR)));
+
+return retval;
+
+} /* get_system_time */
+
 /*******************************************************************************
 * END OF FILE                                                                  * 
 *******************************************************************************/
