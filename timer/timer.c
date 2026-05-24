@@ -115,6 +115,9 @@ micro_tim_wraparounds++;
 
 /**
  * @brief Gets the current time since epoch (startup).
+ * 
+ * @note Dual maintenance with emulator since this module
+ * is compiled out!!
  */
 SYSTEM_TIME get_system_time
     (
