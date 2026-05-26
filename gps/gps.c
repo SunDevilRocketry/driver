@@ -303,26 +303,57 @@ if (!strcmp(token, "$GPGGA"))
     }
 else if (!strcmp(token, "$GPRMC")) 
     {
-    gps_ptr->utc_time = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->rmc_status = gps_string_to_char(GPSstrParse, &idx); /* unused */
-    gps_ptr->nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->ns = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->ew = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->speed_k = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->course_d = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->date = (int)(0.5 + gps_string_to_float(GPSstrParse, &idx));
-    gps_conv_latitude_longitude( gps_ptr );
+    /* Parse data */
+    float utc_time = gps_string_to_float(GPSstrParse, &idx);
+    char rmc_status = gps_string_to_char(GPSstrParse, &idx);
+    float nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
+    char ns = gps_string_to_char(GPSstrParse, &idx);
+    float nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
+    char ew = gps_string_to_char(GPSstrParse, &idx);
+    float speed_k = gps_string_to_float(GPSstrParse, &idx);
+    float course_d = gps_string_to_float(GPSstrParse, &idx);
+    int date = (int)(0.5 + gps_string_to_float(GPSstrParse, &idx));
+
+    /* Save status */
+    gps_ptr->rmc_status = rmc_status;
+    
+    /* Save rest of data only if status is A: Active */
+    if (rmc_status == 'A')
+        {
+        gps_ptr->utc_time = utc_time;
+        gps_ptr->nmea_latitude = nmea_latitude;
+        gps_ptr->ns = ns;
+        gps_ptr->nmea_longitude = nmea_longitude;
+        gps_ptr->ew = ew;
+        gps_ptr->speed_k = speed_k;
+        gps_ptr->course_d = course_d;
+        gps_ptr->date = date;
+        gps_conv_latitude_longitude( gps_ptr );
+        }
     }
 else if (!strcmp(token, "$GPGLL")) 
     {
-    gps_ptr->nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->ns = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->ew = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->utc_time = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->gll_status = gps_string_to_char(GPSstrParse, &idx);
-    gps_conv_latitude_longitude( gps_ptr );
+    /* Parse data */
+    float nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
+    char ns = gps_string_to_char(GPSstrParse, &idx);
+    float nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
+    char ew = gps_string_to_char(GPSstrParse, &idx);
+    float utc_time = gps_string_to_float(GPSstrParse, &idx);
+    char gll_status = gps_string_to_char(GPSstrParse, &idx);
+    
+    /* Store status */
+    gps_ptr->gll_status = gll_status;
+
+    /* Save rest of data only if status is A: Data Valid */
+    if (gll_status == 'A')
+        {
+        gps_ptr->nmea_latitude = nmea_latitude;
+        gps_ptr->ns = ns;
+        gps_ptr->nmea_longitude = nmea_longitude;
+        gps_ptr->ew = ew;
+        gps_ptr->utc_time = utc_time;
+        gps_conv_latitude_longitude( gps_ptr );
+        }
     }
 else if (!strcmp(token, "$GPVTG")) 
     {
