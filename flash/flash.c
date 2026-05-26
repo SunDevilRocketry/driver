@@ -292,6 +292,12 @@ switch ( opcode )
 
 			/* Read from next address */
 			(pflash_handle->address) += sizeof( buffer ) ;
+
+            #ifdef EMULATOR
+            #ifdef __linux__
+            HAL_Delay(15); /* add a small delay -- SDEC reads slower than we tx */
+            #endif
+            #endif
 			}
 
 		return FLASH_OK;
