@@ -3,7 +3,7 @@
   * @file           : MX25L51245GZ2I-08G.c
   * @brief          : Driver for the flash chip on FC rev 3.
   ******************************************************************************
-  * @attention
+  * @copyright
   *
   * Copyright (c) 2026 Sun Devil Rocketry.
   * All rights reserved.
@@ -92,6 +92,11 @@ pflash_handle -> status_register = 0;
 /*------------------------------------------------------------------------------
  API Function Implementation 
 ------------------------------------------------------------------------------*/
+/* Protective Precondition */
+if ( pflash_handle == NULL )
+    {
+    return FLASH_INVALID_INPUT;
+    }
 
 /* Activate QSPI */
 if ( flash_qspi_enable() != FLASH_OK )
@@ -409,12 +414,22 @@ return FLASH_OK;
 } /* flash_read */
 
 
+/**
+ * @brief Identify whether flash is currently performing an operation on the chip.
+ * 
+ * @param pflash_handle A pointer to the flash handle object to be used for the operation.
+ * @retval The status of the flash peripheral.
+ */
 FLASH_STATUS flash_is_flash_busy
     (
     HFLASH_BUFFER* pflash_handle
     ) 
 {
-if ( flash_get_status( pflash_handle ) != FLASH_OK )
+if ( pflash_handle == NULL )
+    {
+    return FLASH_INVALID_INPUT;
+    }   
+else if ( flash_get_status( pflash_handle ) != FLASH_OK )
     {
     return FLASH_FAIL;
     }
@@ -647,12 +662,10 @@ while ( true )
         return FLASH_OK;
         }
 
-    if ( timeout_ms != 0xFFFFFFFFu )
+    if ( ( timeout_ms != 0xFFFFFFFFu )
+      && ( ( HAL_GetTick() - start ) > timeout_ms ) )
         {
-        if ( ( HAL_GetTick() - start ) > timeout_ms )
-            {
-            return FLASH_TIMEOUT;
-            }
+        return FLASH_TIMEOUT;
         }
     }
 }
