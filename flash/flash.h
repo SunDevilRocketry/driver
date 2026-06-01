@@ -268,7 +268,7 @@ typedef enum _FLASH_BLOCK
 	FLASH_BLOCK_12   ,
 	FLASH_BLOCK_13   ,
 	FLASH_BLOCK_14   ,
-	FLASH_BLOCK_15   ,
+	FLASH_BLOCK_15
 	}  FLASH_BLOCK;
 #else
 typedef uint32_t FLASH_BLOCK;
