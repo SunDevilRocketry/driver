@@ -24,6 +24,7 @@
  Standard Includes                                                              
 ------------------------------------------------------------------------------*/
 #include <string.h>
+#include <stdatomic.h>
 
 /*------------------------------------------------------------------------------
  Project Includes                                                               
@@ -52,10 +53,10 @@
 #if defined( A0002_REV2 )
 uint8_t imu_raw_buffer[12];
 IMU_RAW imu_raw_processed;
-static bool imu_data_ready;
+static atomic_bool imu_data_ready;
 
 uint8_t mag_raw_buffer[8];
-static bool mag_data_ready;
+static atomic_bool mag_data_ready;
 #endif
 
 MAG_TRIM mag_trim;
