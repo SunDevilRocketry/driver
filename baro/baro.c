@@ -26,7 +26,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <math.h>
-
+#include <stdatomic.h>
 
 /*------------------------------------------------------------------------------
  Project Includes                                                                     
@@ -34,7 +34,6 @@
 #include "main.h"
 #include "sdr_pin_defines_A0002.h"
 #include "baro.h"
-
 
 /*------------------------------------------------------------------------------
 Global Variables  
@@ -49,7 +48,7 @@ static BARO_CAL_DATA baro_cal_data;
 uint8_t baro_raw_buffer[6];
 float baro_pres_proc = NAN;
 float baro_temp_proc = NAN;
-static bool baro_data_ready = false;
+static atomic_bool baro_data_ready = false;
 
 
 /*------------------------------------------------------------------------------
