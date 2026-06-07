@@ -38,6 +38,8 @@
 	#include "sdr_pin_defines_A0005.h"
 #elif defined( FLIGHT_COMPUTER_LITE )
 	#include "sdr_pin_defines_A0007.h"
+#elif defined( A0010 )
+    #include "sdr_pin_defines_A0010.h"
 #endif
 
 
