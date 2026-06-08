@@ -24,6 +24,7 @@
 /*------------------------------------------------------------------------------
  Standard Includes
 ------------------------------------------------------------------------------*/
+#include <string.h>
 
 /*------------------------------------------------------------------------------
  MCU Pins
@@ -33,6 +34,9 @@
     #include "led.h"
 #elif defined( GROUND_STATION    )
     #include "sdr_pin_defines_A0005.h"
+    #include "led.h"
+#elif defined( A0010             )
+    #include "sdr_pin_defines_A0010.h"
     #include "led.h"
 #endif
 
