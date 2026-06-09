@@ -330,18 +330,6 @@ else if (!strcmp(token, "$GPRMC"))
         gps_ptr->date = date;
         gps_conv_latitude_longitude( gps_ptr );
         }
-    else
-        {
-        gps_ptr->utc_time = 0.0;
-        gps_ptr->nmea_latitude = 0.0;
-        gps_ptr->ns = 0;
-        gps_ptr->nmea_longitude = 0.0;
-        gps_ptr->ew = 0;
-        gps_ptr->speed_k = 0.0;
-        gps_ptr->course_d = 0.0;
-        gps_ptr->date = 0.0;
-        gps_conv_latitude_longitude( gps_ptr );
-        }
     }
 else if (!strcmp(token, "$GPGLL")) 
     {
@@ -364,15 +352,6 @@ else if (!strcmp(token, "$GPGLL"))
         gps_ptr->nmea_longitude = nmea_longitude;
         gps_ptr->ew = ew;
         gps_ptr->utc_time = utc_time;
-        gps_conv_latitude_longitude( gps_ptr );
-        }
-    else
-        {
-        gps_ptr->nmea_latitude = 0.0;
-        gps_ptr->ns = 0;
-        gps_ptr->nmea_longitude = 0.0;
-        gps_ptr->ew = 0;
-        gps_ptr->utc_time = 0.0;
         gps_conv_latitude_longitude( gps_ptr );
         }
     }
