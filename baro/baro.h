@@ -263,13 +263,6 @@ BARO_STATUS baro_get_device_id
    	uint8_t* baro_id 
 	);
 
-
-/* gets pressure data from sensor */
-BARO_STATUS baro_get_pressure
-	(
-    float* pressure_ptr 
-	);
-
 /* gets temp data from sensor */
 BARO_STATUS baro_get_temp
 	(
