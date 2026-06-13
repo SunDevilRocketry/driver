@@ -469,24 +469,6 @@ return BARO_OK;
 } /* baro_get_temp */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		baro_get_altitude                                                      *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		gets the altitude of the rocket from the sensor readouts               *
-*                                                                              *
-*******************************************************************************/
-BARO_STATUS baro_get_altitude
-	(
-    void
-	)
-{
-return BARO_OK;
-} /* baro_get_altitude */
-
-
 /*------------------------------------------------------------------------------
  Internal procedures 
 ------------------------------------------------------------------------------*/

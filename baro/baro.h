@@ -276,12 +276,6 @@ BARO_STATUS baro_get_temp
     float* temp_ptr 
 	);
 
-/* converts pressure and temp data into altitude --> do research on formula */
-BARO_STATUS baro_get_altitude
-	(
-    void
-	);
-
 /* returns the baro_data_ready flag */
 bool baro_get_baro_data_ready
     (
