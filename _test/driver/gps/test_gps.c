@@ -130,7 +130,7 @@ Procedures: Tests
 *       Test the parser for NMEA strings. 									   *
 *                                                                              *
 *******************************************************************************/
-void test_GPS_parse 
+void test_GPS_parse // TODO: edit to test the new support GPS messages
 	(
 	void
     )
@@ -197,7 +197,7 @@ void test_gps_mesg_validate
 /*------------------------------------------------------------------------------
 Initializations
 ------------------------------------------------------------------------------*/
-#define NUM_CASES_GPS_MESG_VALIDATE 6
+#define NUM_CASES_GPS_MESG_VALIDATE 11
 char buffer[200] = ""; // An NMEA message is 82 characters, but the way we parse may end up with more in order to represent the struct
 
 // Source: https://github.com/esutton/gps-nmea-log-files/blob/master/AMOD_AGL3080_20121104_134730.txt
@@ -208,7 +208,7 @@ char* input_strings[] =
 #include "cases/gps_mesg_validate_inputs.txt"
 };
 
-int expected[NUM_CASES_GPS_MESG_VALIDATE] = {1,1,1,0,0,0};
+int expected[NUM_CASES_GPS_MESG_VALIDATE] = {1,1,1,0,0,0,1,1,1,0,0};
 
 for ( int test_num = 0; test_num < NUM_CASES_GPS_MESG_VALIDATE; test_num++ )
 	{

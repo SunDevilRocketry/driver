@@ -90,6 +90,12 @@ typedef enum GPS_STATUS
  Function Prototypes 
 ------------------------------------------------------------------------------*/
 
+/* Initialize the GPS to 921600 baud and set the antenna config */
+GPS_STATUS gps_init
+    (
+    void
+    );
+
 /* transmits bytes over USB */
 GPS_STATUS gps_transmit 
 	(
@@ -111,6 +117,25 @@ GPS_STATUS gps_receive_IT
 	uint8_t*    rx_data_ptr , /* Buffer to export data to        */
 	size_t   rx_data_size /* Size of the data to be received */
 	);
+
+/* Wait for an ACK message from the GPS */
+GPS_STATUS gps_wait_for_ack
+    (
+    uint8_t msg_class, /* UBX class of the message being acknowledged  */
+    uint8_t msg_id     /* UBX id of the message being acknowledged     */
+    );
+
+/* Configure the antenna settings for the GPS */
+GPS_STATUS gps_config_antenna
+    (
+    void
+    );
+
+/* Configure the GPS baudrate to 921600 */
+GPS_STATUS gps_config_baud
+    (
+    void
+    );
 
 int gps_mesg_validate
     (
