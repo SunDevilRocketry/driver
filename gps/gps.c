@@ -67,6 +67,47 @@ Global Variables
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   * 
+* 		gps_init                                                               *
+*                                                                              *
+* DESCRIPTION:                                                                 * 
+* 		Initialize the GPS and change the baud to 921600                       *
+*                                                                              *
+*******************************************************************************/
+GPS_STATUS gps_init 
+	(
+    void
+	)
+{
+/*------------------------------------------------------------------------------
+ Local Variables
+------------------------------------------------------------------------------*/
+GPS_STATUS gps_status;
+
+
+/*------------------------------------------------------------------------------
+ API Function Implementation 
+------------------------------------------------------------------------------*/
+gps_status = gps_config_antenna();
+
+if ( gps_status != GPS_OK )
+    {
+    return gps_status;
+    }
+
+gps_status = gps_config_baud();
+
+if ( gps_status != GPS_OK )
+    {
+    return gps_status;
+    }
+
+return GPS_OK;
+} /* gps_init */
+
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   * 
 * 		gps_transmit                                                    *
 *                                                                              *
 * DESCRIPTION:                                                                 * 
@@ -215,6 +256,195 @@ switch ( gps_status )
 
 } /* usb_receive_IT */
 
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   * 
+* 		gps_wait_for_ack                                                       *
+*                                                                              *
+* DESCRIPTION:                                                                 * 
+* 		Waits for an ACK or NAK response from GPS after sending a config msg   *
+*                                                                              *
+*******************************************************************************/
+GPS_STATUS gps_wait_for_ack 
+	(
+    uint8_t msg_class, /* UBX class of the message being acknowledged  */
+    uint8_t msg_id     /* UBX id of the message being acknowledged     */
+    )
+{
+/*------------------------------------------------------------------------------
+ Local Variables
+------------------------------------------------------------------------------*/
+uint8_t ack_buffer[ 10 ];
+GPS_STATUS rx_status;
+
+
+/*------------------------------------------------------------------------------
+ API Function Implementation 
+------------------------------------------------------------------------------*/
+rx_status = gps_receive( ack_buffer,
+                            sizeof( ack_buffer ),
+                            GPS_TIMEOUT);
+
+if ( rx_status != GPS_OK)
+    {
+    return rx_status;
+    }
+
+/* Validate ACK class */
+if ( ack_buffer[0] != 0xB5 ||
+        ack_buffer[1] != 0x62 || 
+        ack_buffer[2] != 0x05 )
+    {
+    return GPS_FAIL;
+    }
+
+/* Validate the sent class and ID */
+if ( ack_buffer[6] != msg_class ||
+        ack_buffer[7] != msg_id )
+    {
+    return GPS_FAIL;
+    } 
+
+/* Check for ACK or NACK */
+if (ack_buffer[3] == 0x01 )
+    {
+    return GPS_OK;
+    }
+else if ( ack_buffer[3] ==0x00 )
+    {
+    return GPS_FAIL;
+    }
+
+return GPS_FAIL;
+} /* gps_wait_for_ack */
+
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   * 
+* 		gps_config_antenna                                                     *
+*                                                                              *
+* DESCRIPTION:                                                                 * 
+* 		configures the GPS antenna                                             *
+*                                                                              *
+*******************************************************************************/
+GPS_STATUS gps_config_antenna 
+	(
+    void
+	)
+{
+/*------------------------------------------------------------------------------
+ Local Variables
+------------------------------------------------------------------------------*/
+uint8_t antenna_config[] = 
+    {
+    /* UBX Header */
+    0xB5, 0x62,                 /* Header                                    */
+    0x06, 0x8A,                 /* Config Class, Valset command              */
+    0x0E, 0x00,                 /* Payload length (14 bytes, little endian)  */
+
+    /* Valset */
+    0x00,                       /* Version                                   */
+    0x01,                       /* Apply immediately                         */
+    0x00, 0x00,
+
+    /* Enable antenna voltage control */
+    0x2E, 0x00, 0xA3, 0x10,     /* Key ID (little endian)                    */
+    0x01,                       /* Enable                                    */
+
+    /* Enable short circuit detection */
+    0x2F, 0x00, 0xA3, 0x10,     /* Key ID (little endian)                    */
+    0x01,                       /* Enable                                    */
+
+    0x31, 0x00, 0xA3, 0x10,     /* Key ID (little endian)                    */
+    0x01,                       /* Enable                                    */
+
+    /* Checksum */
+    0xE6, 0x39
+    };
+GPS_STATUS gps_status;
+
+
+/*------------------------------------------------------------------------------
+ API Function Implementation 
+------------------------------------------------------------------------------*/
+/* Transmit config */
+gps_status = gps_transmit( antenna_config, 
+                                sizeof( antenna_config )  , 
+                                GPS_TIMEOUT );
+
+/* Return GPS status */
+if ( gps_status != GPS_OK )
+	{
+	return gps_status;
+	}
+
+/* Wait for ACK */
+return gps_wait_for_ack( 0x06, 0x8A );
+
+} /* gps_config_antenna */
+
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   * 
+* 		gps_config_baud                                                        *
+*                                                                              *
+* DESCRIPTION:                                                                 * 
+* 		configures the GPS baudrate                                            *
+*                                                                              *
+*******************************************************************************/
+GPS_STATUS gps_config_baud 
+	(
+    void
+	)
+{
+/*------------------------------------------------------------------------------
+ Local Variables
+------------------------------------------------------------------------------*/
+uint8_t baud_config[] = 
+    {
+    /* UBX Header */
+    0xB5, 0x62,                 /* Header                                    */
+    0x06, 0x8A,                 /* Config Class, Valset command              */
+    0x0C, 0x00,                 /* Payload length (12 bytes, little endian)  */
+
+    /* Valset */
+    0x00,                       /* Version                                   */
+    0x01,                       /* Apply immediately                         */
+    0x00, 0x00,
+
+    /* Set baudrate = 921600 */
+    0x01, 0x00, 0x52, 0x40,     /* Key ID (little endian)                    */
+    0x00, 0x10, 0x0E, 0x00,     /* 921600 (little endian)                    */
+
+    /* Checksum */
+    0xE8, 0x99
+    };
+HAL_StatusTypeDef gps_status;
+
+
+/*------------------------------------------------------------------------------
+ API Function Implementation 
+------------------------------------------------------------------------------*/
+/* Transmit config */
+gps_status = gps_transmit( baud_config, 
+                                sizeof( baud_config )  , 
+                                GPS_TIMEOUT );
+
+/* Return HAL status */
+if ( gps_status != HAL_OK )
+	{
+	return gps_status;
+	}
+
+/* Wait for ACK */
+return gps_wait_for_ack( 0x06, 0x8A );
+
+} /* gps_config_antenna */
+
+
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   *
@@ -279,7 +509,7 @@ int gps_mesg_validate(char *nmeastr){
 *       helpers are updated, make sure the test cases are updated to match.    *
 *                                                                              *
 *******************************************************************************/
-void GPS_parse(GPS_DATA* gps_ptr, char *GPSstrParse){
+void GPS_parse(GPS_DATA* gps_ptr, char *GPSstrParse){// TODO: edit to support talker ID N and P 
 /* Get message type */
 char token[8]; // Needs to be 8 chars for memory alignment
 strncpy(token, GPSstrParse, 6);
@@ -287,7 +517,7 @@ token[6] = '\0';
 int idx = 7; /* Skips "$GPXXX,"*/
 
 /* Parse by message type */
-if (!strcmp(token, "$GPGGA")) 
+if (!strcmp(token, "$GPGGA") || !strcmp(token, "$GNGGA")) 
     {
     gps_ptr->utc_time = gps_string_to_float(GPSstrParse, &idx);
     gps_ptr->nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
