@@ -290,7 +290,7 @@ HAL_Delay( ms );
   *         from the unit quaternion constraint: W = sqrt(1 − x² − y² − z²).
   *         If numerical noise causes |xyz|² > 1, XYZ is normalised first so
   *         the output remains a valid unit quaternion.
-  *         Source: ST community example (STMems_Standard_C_drivers issue #182).
+  *         Uses the vendor-provided lsm6dsv320x_from_quaternion_lsb_to_float() 
   * @param  quat:  Output [x, y, z, w] indexed [0..3].
   * @param  sflp:  Three raw half-float values from the FIFO slot.
   */
@@ -1255,7 +1255,7 @@ return IMU_OK;
   *           3. Snapshot imu_dma_slots_requested into imu_dma_slots_captured.
   *           4. Set imu_dma_ready = true for the flight loop to consume.
   *
-  *         Parsing (half_to_float / sflp2q / sqrtf) is intentionally deferred
+  *         Parsing (lsm6dsv320x_from_quaternion_lsb_to_float / sflp2q / sqrtf) is intentionally deferred
   *         to imu_get_latest() which runs in thread context. This keeps ISR
   *         latency minimal and avoids FPU register pressure in interrupt context.
   */
@@ -1324,7 +1324,7 @@ return imu_dma_ready;
 
 /**
   * @brief  Thread-safe consumer - retrieves the latest DMA-parsed samples.
-  * @note   Parsing (half_to_float / sflp2q / sqrtf) is performed here in
+  * @note   Parsing (lsm6dsv320x_from_quaternion_lsb_to_float / sflp2q / sqrtf) is performed here in
   *         thread context rather than in the DMA ISR. This keeps ISR latency
   *         minimal. The critical section covers only the memcpy of the raw DMA
   *         buffer and the slot count - the FPU-heavy parse runs outside it.
