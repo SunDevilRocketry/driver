@@ -1,6 +1,6 @@
 /**
   ******************************************************************************
-  * @file           : imu.h
+  * @file           : imu_t.h
   * @brief          : LSM6DSV320X IMU Driver Interface
   * @author         : Sun Devil Rocketry Firmware Team
   *
@@ -28,6 +28,10 @@
   *          After transfer complete, imu_process_async_cb() MUST invalidate
   *          the D-Cache region covering the rx buffer before parsing
   *          (SCB_InvalidateDCache_by_Addr).
+  *          
+  *          On a transfer ERROR, HAL_SPI_ErrorCallback() MUST route to
+  *          imu_process_async_error_cb() instead - otherwise CS stays
+  *          asserted low forever and borks other devices sharing SPI bus.
   * 
   * 
   *        Performance target: accel + gyro read < 1 ms @ 1.92 kHz ODR
@@ -79,15 +83,29 @@ extern "C" {
 #define IMU_SFLP_ODR                LSM6DSV320X_SFLP_480Hz
 
 /**
- * @brief FIFO watermark threshold (FIFO words = slots).
- *        1 LSB = 1 FIFO slot (7 bytes: TAG + 6 data). DS14623 Rev3 Table 36.
- *        NOTE: This macro is NOT used by imu_init(). The watermark is
- *        calculated dynamically at init time based on the enabled features:
- *          Base (Gyro + Accel):          2 slots
- *          + SFLP (Quat, Grav, Gbias):  +3 slots
- *        This ensures INT1 fires exactly once per complete sample group
- *        regardless of which features are enabled. The macro is retained
- *        here as a reference value for bypass/polling configurations only.
+ * @brief FIFO watermark threshold reference (programmed in FIFO slots/words).
+ *        1 LSB = 1 FIFO slot (7 bytes: 1-byte TAG + 6-byte data). DS14623 §9.8.
+ *
+ *        NOTE: This macro is a reference value; imu_init() configures the 
+ *        watermark dynamically based on the active dataset:
+ *          - Raw Base (Gyro + Accel):    2 slots
+ *          - SFLP Fusion Additions:     +3 slots (Quat, Grav, Gbias)
+ *
+ *        Given nature of dynamic ODR rate:
+ *        The driver is a stateless & tag-based parser that adapts matched-rate and
+ *        mixed-rate configurations:
+ *
+ *        1. Matched Rates (e.g., 480 Hz ODR / 480 Hz SFLP):
+ *           The FIFO accumulates exactly one complete synchronized dataset 
+ *           (5 slots) per interrupt interval.
+ *
+ *        2. Mixed Rates (e.g., 1.92 kHz ODR / 480 Hz SFLP):
+ *           The FIFO serves as an asynchronous rate-matching reservoir. 
+ *           Raw sensor slots populate the FIFO faster than SFLP slots. 
+ *           The DMA burst reads the accumulated reservoir, and the parser
+ *           ('parse_fifo_slot') decodes each slot based on its embedded tag.
+ *           No raw-to-fusion synchron. required, flight loop consumes latest
+ *           sensor data.
  */
 #define IMU_FIFO_WATERMARK          ( 5U )
 
@@ -97,8 +115,14 @@ extern "C" {
 /**
  * @brief Maximum FIFO slots read per DMA transaction.
  *        Buffer size = IMU_DMA_BUF_SLOTS * IMU_FIFO_SLOT_BYTES + 1 (cmd byte).
+ * @note  Amount was considered based on worst case of SFLP (480Hz max) running w/
+ *        raw Accel/Gyro @ faster OCR (1.92kHz target).
+ *        1.92kHz -> (~2.08ms per SFLP period) ~ 4 Gyro + 4 Accel + 3 SFLP slots = 11 slots
+ *        into FIFO, hence 16 for head room.
+ *        Re-evaluate this value if ODR, SFLP rate, or the flight loop period
+ *        change.
  */
-#define IMU_DMA_BUF_SLOTS           ( 8U )
+#define IMU_DMA_BUF_SLOTS           ( 16U )
 
 /** @brief Total DMA rx buffer size in bytes (cmd + slots).                    */
 #define IMU_DMA_BUF_BYTES           ( 1U + ( IMU_DMA_BUF_SLOTS * IMU_FIFO_SLOT_BYTES ) )
@@ -404,6 +428,18 @@ IMU_STATUS imu_request_async
   *         cache invalidation, flags) to keep ISR latency minimal.
  */
 void imu_process_async_cb
+    (
+    void
+    );
+
+/**
+ * @brief  DMA Error ISR Callback | call from HAL_SPI_ErrorCallback().
+ * @note   Recovers driver state after an SPI/DMA error during the async
+ *         FIFO burst started by imu_request_async().
+ *         Added to prevent DMA fault (CS low & imu_dma_busy permanent set).
+ *         Runs in interrupt context. Hardware-only (CS, flags) - no parsing.
+ */
+void imu_process_async_error_cb
     (
     void
     );

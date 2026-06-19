@@ -23,13 +23,18 @@
   *          5. Flight loop calls imu_has_new_data() / imu_get_latest().
   *          6. imu_get_latest() snapshots the DMA buffer under a brief critical
   *             section, then parses FIFO slots in thread context (no FPU in ISR).
-  *
+  *          7. On a transfer ERROR, HAL_SPI_ErrorCallback() MUST route to
+  *             imu_process_async_error_cb() instead of step 3/4 .
+  *        
   *        D-Cache coherency (STM32H7):
   *          imu_dma_rx_buf is __ALIGNED(32) and sized to a multiple of 32 bytes
   *          (IMU_DMA_BUF_BYTES_ALIGNED). SCB_InvalidateDCache_by_Addr() in
   *          imu_process_async_cb() touches only those lines. Place these buffers
   *          in a non-cacheable MPU region OR rely on the explicit invalidation
   *          here (Don't do both).
+
+  *          NOTE: these buffers must also live in DMA-accessible RAM (e.g. an
+  *          AXI/D2 SRAM section) since DTCM not reachable by DMA1/DMA2.
   *
   *        FIFO quaternion packing (DS14623 Rev3 §13.23, sflp2q convention):
   *          - TAG=0x13 carries X, Y, Z as 16-bit half-floats (IEEE 754-2008, how fancy).
@@ -66,6 +71,24 @@
 ------------------------------------------------------------------------------*/
 #include "main.h"
 #include "imu_t.h"
+#include "error_sdr.h"   /* debug_assert() - mod/error_sdr/error_sdr.h */
+
+/*------------------------------------------------------------------------------
+ Local Macros
+------------------------------------------------------------------------------*/
+
+/**
+ * @brief Raw byte-array capacity for platform_spi_write()'s tx buffer.
+ *        Named for the array bound itself (not a payload ceiling) - "MAX"
+ *        is ambiguous about whether the limit is inclusive or exclusive.
+ *        Largest expected single write is 6 bytes (SFLP gbias init); 64 is
+ *        conservative headroom. Scoped to file level (rather than inside
+ *        platform_spi_write()) for visibility during review/maintenance.
+ */
+#define SPI_WRITE_TX_ARRAY_SIZE  ( 64U )
+
+/** @brief Raw byte-array capacity for platform_spi_read()'s tx/rx buffers.   */
+#define SPI_READ_RX_ARRAY_SIZE   ( 64U )
 
 
 /*------------------------------------------------------------------------------
@@ -90,14 +113,30 @@ static IMU_ODR imu_cached_odr;
 static bool    imu_cached_fifo_en;
 
 /**
- * @brief DMA path I/O buffers.
- *        __ALIGNED(32): ensures each buffer maps to complete 32-byte H7 cache
- *        lines, keeping SCB_InvalidateDCache_by_Addr() in imu_process_async_cb()
- *        tight and safe. IMU_DMA_BUF_BYTES_ALIGNED (from imu_t.h) rounds up
- *        IMU_DMA_BUF_BYTES to the next 32-byte boundary.
+ * @brief Cached power mode most recently requested via imu_init() /
+ *        imu_set_power_mode(). DS14623 Rev3 §6.1.2 forces the low-G chain
+ *        into high-performance mode whenever the high-G chain is active;
+ *        imu_set_accel_fs() uses this cache to restore the user's actual
+ *        requested mode after a High-G -> Low-G transition removes that
+ *        constraint, instead of leaving the sensor stuck in HP mode.
  */
-__ALIGNED(32) static uint8_t imu_dma_tx_buf[ IMU_DMA_BUF_BYTES_ALIGNED ];
-__ALIGNED(32) static uint8_t imu_dma_rx_buf[ IMU_DMA_BUF_BYTES_ALIGNED ];
+static IMU_ACC_MODE imu_cached_acc_mode;
+
+/**
+ * @brief DMA path I/O buffers.
+ *        - __ALIGNED(32): Aligns buffers to 32-byte H7 cache lines, keeping 
+ *          SCB_InvalidateDCache_by_Addr() working.
+ *        - .dma_buffer: Places buffers in RAM_D2 (0x30000000, Domain 2 SRAM). 
+ *          This is required because STM32H7's DTCM (the default .bss region) 
+ *          is unreachable by the DMA1/DMA2 controllers.
+ * 
+ *        Requires a matching definition in LinkerScript.ld:
+ *          .dma_buffer (NOLOAD) : { . = ALIGN(32); *(.dma_buffer); . = ALIGN(32); } >RAM_D2
+ */
+__ALIGNED(32) __attribute__((section(".dma_buffer")))
+static uint8_t imu_dma_tx_buf[ IMU_DMA_BUF_BYTES_ALIGNED ];
+__ALIGNED(32) __attribute__((section(".dma_buffer")))
+static uint8_t imu_dma_rx_buf[ IMU_DMA_BUF_BYTES_ALIGNED ];
 
 /** @brief Number of FIFO slots captured in the most recent DMA transaction    */
 static volatile uint8_t imu_dma_slots_requested;
@@ -121,7 +160,6 @@ static int32_t platform_spi_read ( void* handle, uint8_t reg,
                                    uint8_t* buf,       uint16_t len );
 static void    platform_delay_ms ( uint32_t ms );
 
-static float   half_to_float     ( uint16_t h );
 static void    sflp2q            ( float quat[4], const uint16_t sflp[3] );
 static void    parse_fifo_slot   ( const uint8_t* slot,
                                    IMU_RAW* raw_ptr, IMU_SFLP_DATA* sflp_ptr );
@@ -152,14 +190,13 @@ static int32_t platform_spi_write
     uint16_t       len
     )
 {
-#define SPI_WRITE_BUF_MAX  ( 64U )
-
-uint8_t           tx[ SPI_WRITE_BUF_MAX ];
+uint8_t           tx[ SPI_WRITE_TX_ARRAY_SIZE ];
 HAL_StatusTypeDef hal_status;
 
 (void)handle;
 
-if ( len >= SPI_WRITE_BUF_MAX ) {
+/* Reject if the address byte + payload would overflow the raw array. */
+if ( ( (uint32_t)len + 1U ) > SPI_WRITE_TX_ARRAY_SIZE ) {
     return 1;
 }
 
@@ -174,9 +211,10 @@ hal_status = HAL_SPI_Transmit( &IMU_SPI, tx, (uint16_t)( len + 1U ),
 __NOP(); __NOP();
 HAL_GPIO_WritePin( IMU_CS_GPIO_PORT, IMU_CS_PIN, GPIO_PIN_SET );
 
-return ( hal_status == HAL_OK ) ? 0 : 1;
-
-#undef SPI_WRITE_BUF_MAX
+if ( hal_status == HAL_OK ) {
+    return 0;
+}
+return 1;
 } /* platform_spi_write */
 
 
@@ -199,21 +237,20 @@ static int32_t platform_spi_read
     uint16_t len
     )
 {
-#define SPI_READ_BUF_MAX  ( 64U )
-
-uint8_t           tx[ SPI_READ_BUF_MAX ];
-uint8_t           rx[ SPI_READ_BUF_MAX ];
+uint8_t           tx[ SPI_READ_RX_ARRAY_SIZE ] = { 0 };
+uint8_t           rx[ SPI_READ_RX_ARRAY_SIZE ] = { 0 };
 HAL_StatusTypeDef hal_status;
 
 (void)handle;
 
-if ( len >= SPI_READ_BUF_MAX ) {
+if ( ( (uint32_t)len + 1U ) > SPI_READ_RX_ARRAY_SIZE ) {
     return 1;
 }
 
-/* RW = 1 for read: bit[7] set (DS14623 §5.1.3) */
+/* RW = 1 for read: bit[7] set (DS14623 §5.1.3).
+   Zero-initialized at declaration to supply dummy bytes and prevent
+   compiler dead-store elimination of a late memset call. */
 tx[0] = reg | IMU_SPI_READ_BIT;
-memset( &tx[1], 0x00U, len );
 
 HAL_GPIO_WritePin( IMU_CS_GPIO_PORT, IMU_CS_PIN, GPIO_PIN_RESET );
 __NOP(); __NOP();
@@ -228,8 +265,6 @@ if ( hal_status == HAL_OK ) {
     return 0;
 }
 return 1;
-
-#undef SPI_READ_BUF_MAX
 } /* platform_spi_read */
 
 
@@ -250,52 +285,6 @@ HAL_Delay( ms );
 ------------------------------------------------------------------------------*/
 
 /**
-  * @brief  Converts a 16-bit IEEE 754 half-precision float to float32.
-  * @note   Used to decode SFLP quaternion / gravity / gyro-bias FIFO half-floats.
-  *         Correctly handles subnormals, infinities, and NaN.
-  *         Matches the lsm6dsv320x_from_f16_to_f32 pattern used in the ST
-  *         community example (STMems_Standard_C_drivers issue #182).
-  * @param  h: Half-precision float value (raw 16-bit).
-  * @retval Equivalent float32.
-  */
-static float half_to_float
-    (
-    uint16_t h
-    )
-{
-uint32_t sign     = ( (uint32_t)h >> 15U ) & 0x01U;
-uint32_t exponent = ( (uint32_t)h >> 10U ) & 0x1FU;
-uint32_t mantissa =   (uint32_t)h          & 0x3FFU;
-uint32_t f32_bits;
-float    result;
-
-if ( exponent == 0U ) {
-    /*
-     * Half-float subnormal: value = (-1)^sign * 2^-14 * (mantissa / 1024)
-     *                              = (-1)^sign * mantissa * 2^-24.
-     * 2^-24 = 5.9604644775390625e-8f (exact).
-     * The naive bit-shift approach (setting float32 exponent to 0) produces
-     * a float32 subnormal with value scaled by 2^-126 instead of 2^-14 -
-     * off by 2^112, making SFLP outputs effectively zero for near-zero
-     * quaternion components. (TL;DR: Floating point stuff)
-     * 
-     */
-    float v = (float)mantissa * 5.9604644775390625e-8f;
-    return ( sign != 0U ) ? -v : v;
-} else if ( exponent == 0x1FU ) {
-    /* Inf or NaN */
-    f32_bits = ( sign << 31U ) | 0x7F800000U | ( mantissa << 13U );
-} else {
-    /* Normalized: rebias exponent from 15 to 127 */
-    f32_bits = ( sign << 31U ) | ( ( exponent + 112U ) << 23U ) | ( mantissa << 13U );
-}
-
-memcpy( &result, &f32_bits, sizeof( result ) );
-return result;
-} /* half_to_float */
-
-
-/**
   * @brief  Converts three half-float SFLP components to a unit quaternion.
   * @note   ST packs only X, Y, Z into a TAG=0x13 FIFO slot; W is reconstructed
   *         from the unit quaternion constraint: W = sqrt(1 − x² − y² − z²).
@@ -314,9 +303,9 @@ static void sflp2q
 float   sumsq;
 uint8_t i;
 
-quat[0] = half_to_float( sflp[0] ); /* x */
-quat[1] = half_to_float( sflp[1] ); /* y */
-quat[2] = half_to_float( sflp[2] ); /* z */
+quat[0] = lsm6dsv320x_from_quaternion_lsb_to_float( sflp[0] ); /* x */
+quat[1] = lsm6dsv320x_from_quaternion_lsb_to_float( sflp[1] ); /* y */
+quat[2] = lsm6dsv320x_from_quaternion_lsb_to_float( sflp[2] ); /* z */
 
 sumsq = quat[0] * quat[0] + quat[1] * quat[1] + quat[2] * quat[2];
 
@@ -413,17 +402,17 @@ switch ( tag ) {
 
     case IMU_FIFO_TAG_SFLP_GRAV:
         if ( sflp_ptr != NULL ) {
-            sflp_ptr->grav_x = half_to_float( x_raw );
-            sflp_ptr->grav_y = half_to_float( y_raw );
-            sflp_ptr->grav_z = half_to_float( z_raw );
+            sflp_ptr->grav_x = lsm6dsv320x_from_quaternion_lsb_to_float( x_raw );
+            sflp_ptr->grav_y = lsm6dsv320x_from_quaternion_lsb_to_float( y_raw );
+            sflp_ptr->grav_z = lsm6dsv320x_from_quaternion_lsb_to_float( z_raw );
         }
         break;
 
     case IMU_FIFO_TAG_SFLP_GBIAS:
         if ( sflp_ptr != NULL ) {
-            sflp_ptr->gbias_x = half_to_float( x_raw );
-            sflp_ptr->gbias_y = half_to_float( y_raw );
-            sflp_ptr->gbias_z = half_to_float( z_raw );
+            sflp_ptr->gbias_x = lsm6dsv320x_from_quaternion_lsb_to_float( x_raw );
+            sflp_ptr->gbias_y = lsm6dsv320x_from_quaternion_lsb_to_float( y_raw );
+            sflp_ptr->gbias_z = lsm6dsv320x_from_quaternion_lsb_to_float( z_raw );
         }
         break;
 
@@ -466,7 +455,7 @@ switch ( tag ) {
   */
 IMU_STATUS imu_init
     (
-    IMU_CONFIG* config
+    const IMU_CONFIG* config
     )
 {
 /*--------------------------------------------------------------------------
@@ -485,11 +474,12 @@ lsm6dsv320x_fifo_gy_batch_t g_bdr;
 /*--------------------------------------------------------------------------
  Initializations
 --------------------------------------------------------------------------*/
-imu_sflp_enabled  = false;
-imu_dma_ready     = false;
-imu_dma_busy      = false;
-imu_cached_odr    = config->odr;
-imu_cached_fifo_en = config->fifo_enable;
+imu_sflp_enabled    = false;
+imu_dma_ready       = false;
+imu_dma_busy        = false;
+imu_cached_odr      = config->odr;
+imu_cached_fifo_en  = config->fifo_enable;
+imu_cached_acc_mode = config->acc_mode;
 
 memset( imu_dma_tx_buf, 0, sizeof( imu_dma_tx_buf ) );
 memset( imu_dma_rx_buf, 0, sizeof( imu_dma_rx_buf ) );
@@ -560,6 +550,10 @@ switch ( config->odr ) {
         break;
     case IMU_ODR_1920HZ: /* fall-through to default */
     default:
+        /* Defensive check (debug builds only): any value reaching this
+           branch should be exactly IMU_ODR_1920HZ. Catches an out-of-range
+           enum value being passed in config->odr. */
+        debug_assert( config->odr == IMU_ODR_1920HZ );
         xl_odr = LSM6DSV320X_ODR_AT_1920Hz;
         g_odr  = LSM6DSV320X_ODR_AT_1920Hz;
         xl_bdr = LSM6DSV320X_XL_BATCHED_AT_1920Hz;
@@ -763,7 +757,11 @@ if ( config->sflp_enable ) {
    BDR matches the ODR selected above.
    FIFO_MODE = continuous (LSM6DSV320X_STREAM_MODE, 110b).
    Watermark is calculated dynamically from the enabled slot types so INT1
-   fires exactly once per complete sample group. DS14623 Rev3 Table 36:
+   fires once per complete sample group when SFLP and the raw ODR share
+   the same rate (480 Hz). At higher raw ODRs (e.g. 1.92 kHz) SFLP - capped
+   at 480 Hz - arrives less often than this; see IMU_DMA_BUF_SLOTS in
+   imu_t.h for how the DMA path is sized to drain the resulting backlog
+   regardless. DS14623 Rev3 Table 36:
    "1 LSB = TAG (1 byte) + 1 sensor (6 bytes) written in FIFO."
    DS14623 Rev3 §9.7-9.8, FIFO_CTRL3 (09h), FIFO_CTRL4 (0Ah).
    ----------------------------------------------------------------------- */
@@ -827,7 +825,10 @@ return IMU_OK;
   *         crossings. On crossing from low-G to high-G: writes CTRL1_XL_HG
   *         (4Eh), forces low-G to ±16g HP mode (§6.1.2), and reroutes FIFO
   *         batching (XL_HG_BATCH_EN on, low-G batch off). On crossing from
-  *         high-G to low-G: clears XL_HG_REGOUT_EN, restores low-G batching.
+  *         high-G to low-G: clears XL_HG_REGOUT_EN, restores low-G batching,
+  *         and restores whichever accel power mode the user last requested
+  *         via imu_init()/imu_set_power_mode() (the §6.1.2 forced-HP
+  *         constraint no longer applies once the high-G chain is off).
   *         DS14623 Rev3 §6.1.2, Tables 70, 149, 150; COUNTER_BDR_REG1 (0Bh).
   */
 IMU_STATUS imu_set_accel_fs
@@ -935,6 +936,25 @@ if ( new_is_hg )
             }
             pid_status |= lsm6dsv320x_fifo_xl_batch_set( &imu_ctx, xl_bdr );
         }
+
+        /*
+         * §6.1.2 only forces HP mode while the high-G chain is active. Now
+         * that we've dropped back to the low-G chain, restore whatever
+         * power mode the user actually asked for via imu_init() /
+         * imu_set_power_mode() instead of leaving the sensor stuck in HP.
+         */
+        {
+            lsm6dsv320x_xl_mode_t restore_mode;
+            switch ( imu_cached_acc_mode ) {
+                case IMU_ACC_MODE_NORMAL: restore_mode = LSM6DSV320X_XL_NORMAL_MD;          break;
+                case IMU_ACC_MODE_LP1:    restore_mode = LSM6DSV320X_XL_LOW_POWER_2_AVG_MD; break;
+                case IMU_ACC_MODE_LP2:    restore_mode = LSM6DSV320X_XL_LOW_POWER_4_AVG_MD; break;
+                case IMU_ACC_MODE_LP3:    restore_mode = LSM6DSV320X_XL_LOW_POWER_8_AVG_MD; break;
+                case IMU_ACC_MODE_HP:                                                         /* fall-through */
+                default:                  restore_mode = LSM6DSV320X_XL_HIGH_PERFORMANCE_MD; break;
+            }
+            pid_status |= lsm6dsv320x_xl_mode_set( &imu_ctx, restore_mode );
+        }
     }
 }
 
@@ -970,7 +990,9 @@ return IMU_OK;
   * @note   DS14623 Rev3 §6.1.2: when the high-G chain is active the low-G
   *         chain must remain in high-performance mode. If high-G is currently
   *         configured, acc_mode is silently overridden to IMU_ACC_MODE_HP
-  *         regardless of the caller's request.
+  *         regardless of the caller's request. The caller's requested mode
+  *         is still cached (imu_cached_acc_mode) so imu_set_accel_fs() can
+  *         restore it later if/when the high-G chain is deactivated.
   *         DS14623 Rev3 CTRL1 (10h) Table 53, CTRL2 (11h) Table 56.
   */
 IMU_STATUS imu_set_power_mode
@@ -982,6 +1004,10 @@ IMU_STATUS imu_set_power_mode
 int32_t               pid_status = 0;
 lsm6dsv320x_xl_mode_t xl_mode;
 IMU_ACC_MODE          effective_acc_mode;
+
+/* Remember what the caller actually asked for, independent of any
+   hardware-constraint override below. */
+imu_cached_acc_mode = acc_mode;
 
 /* Enforce §6.1.2: high-G chain requires low-G in high-performance mode */
 effective_acc_mode = ( imu_acc_fs >= IMU_ACC_FS_32G ) ? IMU_ACC_MODE_HP : acc_mode;
@@ -1254,6 +1280,35 @@ imu_dma_ready = true;
 
 
 /**
+  * @brief  DMA Error ISR Callback - call from HAL_SPI_ErrorCallback().
+  * @note   Execution context: DMA/SPI interrupt (ISR). Hardware-only - no
+  *         parsing, mirrors imu_process_async_cb()'s structure.
+  *
+  *         Without this hook, an SPI/DMA error during the burst started by
+  *         imu_request_async() leaves CS asserted low forever (locking out
+  *         every other device sharing this SPI bus) and leaves imu_dma_busy
+  *         permanently true (deadlocking the async data path - neither
+  *         imu_has_new_data() nor a fresh imu_request_async() can ever
+  *         succeed again).
+  *
+  *         No valid data is assumed to be present after an error, so
+  *         imu_dma_ready is left/cleared false rather than set true.
+  */
+void imu_process_async_error_cb
+    (
+    void
+    )
+{
+/* De-assert CS immediately to free the shared SPI bus */
+__NOP(); __NOP();
+HAL_GPIO_WritePin( IMU_CS_GPIO_PORT, IMU_CS_PIN, GPIO_PIN_SET );
+
+imu_dma_busy  = false;
+imu_dma_ready = false;
+} /* imu_process_async_error_cb */
+
+
+/**
   * @brief  Returns true if a completed DMA burst is waiting to be consumed.
   * @retval true  - new data available (call imu_get_latest()).
   * @retval false - DMA in flight or no burst has completed yet.
@@ -1294,16 +1349,21 @@ IMU_SFLP_DATA sflp_out;
 if ( !imu_dma_ready ) { return IMU_BUSY; }
 
 /*
- * Critical section: copy the raw DMA buffer and slot count, then clear the
- * ready flag. Only this memcpy needs protection - the parse runs outside
- * the critical section so FPU operations do not block other interrupts.
+ * Critical section: snapshot the slot count, derive exactly how many bytes
+ * this DMA transaction actually populated (1 cmd byte + slots*7), copy only
+ * that range, then clear the ready flag. The slot count MUST be captured
+ * before it's used to size the copy (to avoid garbage/wrapping)
+ * memcpy protection req. + the parse runs outside the critical
+ * section so FPU operations do not block other interrupts.
  */
 primask = __get_PRIMASK();
 __disable_irq();
 
-memcpy( dma_snapshot, imu_dma_rx_buf, valid_len );
-// memcpy( dma_snapshot, imu_dma_rx_buf, sizeof( dma_snapshot ) );
-slots         = imu_dma_slots_requested;
+slots = imu_dma_slots_requested;
+{
+    uint16_t valid_len = (uint16_t)( 1U + ( (uint16_t)slots * IMU_FIFO_SLOT_BYTES ) );
+    memcpy( dma_snapshot, imu_dma_rx_buf, valid_len );
+}
 imu_dma_ready = false;
 
 __set_PRIMASK( primask );
