@@ -23,6 +23,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#if !defined( A0010 )
+    #include "imu_legacy.h"
+#endif
+
 typedef struct {
     float accel[3];         /* g                                   */
     float gyro[3];          /* dps                                 */
