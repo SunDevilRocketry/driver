@@ -260,6 +260,8 @@ typedef struct _STATE_ESTIMATION {
     float velo_z;     
 	float position;
 } STATE_ESTIMATION;
+_Static_assert( sizeof( STATE_ESTIMATION ) == ( 11 * sizeof( float ) ),
+                "STATE_ESTIMATION struct size mismatch (padding).");
 
 typedef struct _IMU_CONVERTED {
     float accel_x;
@@ -272,6 +274,8 @@ typedef struct _IMU_CONVERTED {
     float mag_y ;
     float mag_z ;
 } IMU_CONVERTED;
+_Static_assert( sizeof( IMU_CONVERTED ) == ( 9 * sizeof( float ) ),
+                "IMU_CONVERTED struct size mismatch (padding).");
 
 /* Structure for imu containing all accel, gyro, and mag data */
 typedef struct _IMU_DATA 
@@ -279,6 +283,8 @@ typedef struct _IMU_DATA
     IMU_CONVERTED imu_converted;
     STATE_ESTIMATION state_estimate;
 	} IMU_DATA;
+_Static_assert( sizeof( IMU_DATA ) == ( sizeof( IMU_CONVERTED ) + sizeof( STATE_ESTIMATION ) ),
+                "IMU_DATA struct size mismatch (padding).");
 
 /* Struct containing imu offset */
 typedef struct _IMU_OFFSET {

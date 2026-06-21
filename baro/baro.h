@@ -246,6 +246,8 @@ typedef struct _BARO_DATA {
 	float	 baro_alt;
 	float 	 baro_velo;
 } BARO_DATA;
+_Static_assert( sizeof( BARO_DATA ) == ( 4 * sizeof( float ) ),
+                "BARO_DATA struct size mismatch (padding).");
 
 
 /*------------------------------------------------------------------------------

@@ -88,6 +88,8 @@ typedef struct _GPS_DATA {
 	char	 gps_gll_status;
 	char 	 gps_rmc_status;
 } GPS_DATA;
+_Static_assert( sizeof( GPS_DATA ) == ( 5 * sizeof( float ) + 4 * sizeof( char ) ),
+                "GPS_DATA struct size mismatch (padding).");
 
 
 /* Function return codes */
