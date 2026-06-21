@@ -281,7 +281,7 @@ int gps_mesg_validate(char *nmeastr){
 *       helpers are updated, make sure the test cases are updated to match.    *
 *                                                                              *
 *******************************************************************************/
-void GPS_parse(GPS_DATA* gps_ptr, char *GPSstrParse){
+void GPS_parse(RAW_GPS_DATA* gps_ptr, char *GPSstrParse){
 /* Get message type */
 char token[8]; // Needs to be 8 chars for memory alignment
 strncpy(token, GPSstrParse, 6);
@@ -423,7 +423,7 @@ else
 *       updated, please re-run the test and update if necessary                *
 *                                                                              *
 *******************************************************************************/
-void gps_conv_latitude_longitude( GPS_DATA* data ) 
+void gps_conv_latitude_longitude( RAW_GPS_DATA* data ) 
 {
 /* Initialize variables */
 uint8_t latitude_deg; /* Range: 0 to 90 */

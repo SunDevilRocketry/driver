@@ -39,8 +39,8 @@ extern "C" {
  Typdefs 
 ------------------------------------------------------------------------------*/
 
-
-typedef struct _GPS_DATA{
+/* Unprocessed GPS data -- direct from NMEA message */
+typedef struct _RAW_GPS_DATA{
     // calculated values
     float dec_latitude;
     float dec_longitude;
@@ -74,6 +74,19 @@ typedef struct _GPS_DATA{
     char speed_k_unit;
     float speed_km; // speek km/hr
     char speed_km_unit;
+} RAW_GPS_DATA;
+
+/* GPS data to be logged */
+typedef struct _GPS_DATA {
+	float	 gps_altitude_ft;
+	float 	 gps_speed_kmh;
+	float 	 gps_utc_time;
+	float	 gps_dec_longitude;
+	float	 gps_dec_latitude;
+	char	 gps_ns;
+	char	 gps_ew;
+	char	 gps_gll_status;
+	char 	 gps_rmc_status;
 } GPS_DATA;
 
 
@@ -119,7 +132,7 @@ int gps_mesg_validate
 
 void GPS_parse
     (
-    GPS_DATA* gps_ptr, 
+    RAW_GPS_DATA* gps_ptr, 
     char *GPSstrParse
     );
 
@@ -137,7 +150,7 @@ char gps_string_to_char
 
 void gps_conv_latitude_longitude
     ( 
-    GPS_DATA* data 
+    RAW_GPS_DATA* data 
     );
 
 void gps_listener  

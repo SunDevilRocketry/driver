@@ -240,6 +240,13 @@ typedef struct _BARO_CAL_DATA
 
 	} BARO_CAL_DATA;
 
+typedef struct _BARO_DATA {
+    float    baro_pressure; 
+	float    baro_temp;	
+	float	 baro_alt;
+	float 	 baro_velo;
+} BARO_DATA;
+
 
 /*------------------------------------------------------------------------------
  Function Prototypes 
