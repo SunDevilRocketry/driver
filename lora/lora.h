@@ -260,6 +260,11 @@ void lora_reset
     void
     );
 
+bool lora_is_lora_initialized
+    (
+    void
+    );
+
 LORA_STATUS lora_cmd_execute
     ( 
     uint8_t subcommand_code,

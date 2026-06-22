@@ -51,7 +51,7 @@
 /*------------------------------------------------------------------------------
  Global Variables
 ------------------------------------------------------------------------------*/
-static LORA_ASYNC_OP_MODE op_mode = LORA_ASYNC_TX;
+static LORA_ASYNC_OP_MODE op_mode = LORA_ASYNC_OFF;
 static LORA_TX_FSM_STATE tx_fsm = LORA_TX_STATE_BLOCKING;
 
 static LORA_STATUS lora_status = LORA_OK;

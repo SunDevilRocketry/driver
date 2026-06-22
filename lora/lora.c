@@ -51,7 +51,7 @@
  Global Variables
 ------------------------------------------------------------------------------*/
 static LORA_STATUS lora_rx_done = LORA_WAITING;
-
+static bool is_lora_configured = false;
 
 /*------------------------------------------------------------------------------
     Internal function prototypes
@@ -277,6 +277,25 @@ return LORA_OK;
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   *
+* 		lora_is_lora_initialized                                               *
+*                                                                              *
+* DESCRIPTION:                                                                 *
+*       Determine initialization state of LoRa modem.                          *
+*                                                                              *
+*******************************************************************************/
+bool lora_is_lora_initialized
+    (
+    void
+    )
+{
+return is_lora_configured;
+
+} /* lora_is_lora_initialized */
+
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   *
 * 		lora_cmd_execute                                                       *
 *                                                                              *
 * DESCRIPTION:                                                                 *
@@ -410,6 +429,7 @@ lora_reset();
 HAL_Delay(10);
 if (lora_init( &lora_config ) == LORA_OK)
     {
+    is_lora_configured = true;
     return lora_status;
     }
 else
