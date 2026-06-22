@@ -118,7 +118,8 @@ typedef enum _LORA_STATUS {
    LORA_BUFFER_UNDERSIZED,
    LORA_READY,
    LORA_WAITING,
-   LORA_USING_DEFAULTS
+   LORA_USING_DEFAULTS,
+   LORA_INVALID_CMD
 } LORA_STATUS;
 
 /* Datasheet page 107 */
@@ -166,6 +167,12 @@ typedef enum _LORA_PA_SELECT {
    LORA_PA_BOOST = 0x01
 } LORA_PA_SELECT;
 
+typedef enum _LORA_ASYNC_OP_MODE {
+    LORA_ASYNC_OFF = 0x00,
+    LORA_ASYNC_TX  = 0x10,
+    LORA_ASYNC_RX  = 0x20,
+} LORA_ASYNC_OP_MODE;
+
 /* LORA CONFIG SETTINGS -- arg for lora_init() */
 typedef struct _LORA_CONFIG {
    LORA_CHIPMODE lora_mode; // Current LORA Chipmode
@@ -193,6 +200,26 @@ typedef enum LORA_SUBCMD_CODES {
     LORA_PRESET_UPLOAD = 0x01,
     LORA_PRESET_DOWNLOAD = 0x02
 } LORA_SUBCMD_CODES;
+
+typedef enum LORA_TX_FSM_STATE {
+    LORA_TX_STATE_BLOCKING = 0,
+    LORA_TX_STATE_STATUS_CHECK,
+    LORA_TX_STATE_GETTING_BUF,
+    LORA_TX_STATE_SETTING_TX_BASE,
+    LORA_TX_STATE_WRITING_MSG_LEN,
+    LORA_TX_STATE_WRITING_MSG,
+    LORA_TX_STATE_PRE_TX_STATUS_CHECK,
+    LORA_TX_STATE_STARTING_TRANSMISSION,
+    LORA_TX_STATE_TRANSMITTING
+} LORA_TX_FSM_STATE;
+
+typedef enum LORA_FSM_EVENT {
+    LORA_FSM_EVENT_CANCEL = 0,
+    LORA_FSM_EVENT_SYNCHRONOUS_UPDATE,
+    LORA_FSM_EVENT_REG_READ_CPLT,
+    LORA_FSM_EVENT_WRITE_CPLT,
+    LORA_FSM_EVENT_EXTI_RAISED
+} LORA_FSM_EVENT;
 
 /*------------------------------------------------------------------------------
  Function Prototypes
@@ -263,6 +290,17 @@ LORA_STATUS lora_receive
     uint8_t* buffer_ptr,
     uint8_t buffer_len,
     uint8_t* num_bytes_received
+    );
+
+/* lora_async.c */
+LORA_STATUS lora_fsm_set_mode
+    (
+    LORA_ASYNC_OP_MODE new_mode
+    );
+
+void lora_fsm_update
+    (
+    LORA_FSM_EVENT update_cause
     );
 
 #ifdef __cplusplus
