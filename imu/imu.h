@@ -26,6 +26,7 @@
 
 #include <stdbool.h>
 #include "stm32h7xx_hal.h"
+#include "math_sdr.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -246,21 +247,6 @@ typedef struct _IMU_RAW {
     uint16_t    mag_hall;
 } IMU_RAW;
 
-/* Processed IMU aata */
-typedef struct _STATE_ESTIMATION {
-	float roll_angle;
-	float pitch_angle;
-    float yaw_angle;
-	float roll_rate;
-	float pitch_rate;
-    float yaw_rate;
-    float velocity;
-    float velo_x;
-    float velo_y;
-    float velo_z;     
-	float position;
-} STATE_ESTIMATION;
-
 typedef struct _IMU_CONVERTED {
     float accel_x;
     float accel_y;
@@ -272,13 +258,6 @@ typedef struct _IMU_CONVERTED {
     float mag_y ;
     float mag_z ;
 } IMU_CONVERTED;
-
-/* Structure for imu containing all accel, gyro, and mag data */
-typedef struct _IMU_DATA 
-	{
-    IMU_CONVERTED imu_converted;
-    STATE_ESTIMATION state_estimate;
-	} IMU_DATA;
 
 /* Struct containing imu offset */
 typedef struct _IMU_OFFSET {
