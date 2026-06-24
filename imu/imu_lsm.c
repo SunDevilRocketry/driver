@@ -35,9 +35,9 @@
   *          AXI/D2 SRAM section) since DTCM not reachable by DMA1/DMA2.
   *
   *        FIFO quaternion packing (DS14623 Rev3 §13.23, sflp2q convention):
-  *          - TAG=0x13 carries X, Y, Z as 16-bit half-floats (IEEE 754-2008, how fancy).
-  *          - W is derived: w = sqrt(max(0, 1 − x^2 − y^2 − z^2)).
-  *          - One TAG=0x13 slot is self-contained (no state machine needed somehow).
+  *          - TAG=0x13 carries X, Y, Z as 16-bit half-floats (IEEE 754-2008).
+  *          - w = sqrt(max(0, 1 − x^2 − y^2 − z^2)).
+  *          - One TAG=0x13 slot is self-contained (no state machine needed).
   *
   ******************************************************************************
   * @attention
@@ -91,7 +91,7 @@
 ------------------------------------------------------------------------------*/
 
 /** @brief ST PID driver context (holds SPI read/write function pointers)     */
-static lsm6dsv320x_ctx_t imu_ctx;
+static stmdev_ctx_t imu_ctx;
 
 /** @brief Cached FS settings [required for imu_scale_raw() sensitivity lookup] */
 static IMU_ACC_FS  imu_acc_fs;
@@ -122,7 +122,7 @@ static IMU_ACC_MODE imu_cached_acc_mode;
  *        - __ALIGNED(32): Prevents cache corruption during cache invalidation.
  *        - Section (.dma_buffer): Forces placement in RAM_D2 (0x30000000).
  *          DTCM (.bss) is not reachable by the DMA1/DMA2 controllers.
- * 
+ *
  *        Linker requirements:
  *          .dma_buffer (NOLOAD) : { . = ALIGN(32); *(.dma_buffer); } >RAM_D2
  */
@@ -197,12 +197,12 @@ if ( ( (uint32_t)len + 1U ) > SPI_WRITE_TX_ARRAY_SIZE ) {
 tx[0] = reg & (uint8_t)( ~IMU_SPI_READ_BIT );
 memcpy( &tx[1], buf, len );
 
-HAL_GPIO_WritePin( IMU_CS_GPIO_PORT, IMU_CS_PIN, GPIO_PIN_RESET );
+HAL_GPIO_WritePin( IMU_NSS_GPIO_PORT, IMU_NSS_PIN, GPIO_PIN_RESET );
 __NOP(); __NOP();
 hal_status = HAL_SPI_Transmit( &IMU_SPI, tx, (uint16_t)( len + 1U ),
                                 IMU_SPI_TIMEOUT_MS );
 __NOP(); __NOP();
-HAL_GPIO_WritePin( IMU_CS_GPIO_PORT, IMU_CS_PIN, GPIO_PIN_SET );
+HAL_GPIO_WritePin( IMU_NSS_GPIO_PORT, IMU_NSS_PIN, GPIO_PIN_SET );
 
 if ( hal_status == HAL_OK ) {
     return 0;
@@ -241,17 +241,16 @@ if ( ( (uint32_t)len + 1U ) > SPI_READ_RX_ARRAY_SIZE ) {
 }
 
 /* RW = 1 for read: bit[7] set (DS14623 §5.1.3).
-   Zero-initialized at declaration to supply dummy bytes and prevent
-   compiler dead-store elimination of a late memset call. */
+   Zero-initialized at declaration to supply dummy bytes. */
 tx[0] = reg | IMU_SPI_READ_BIT;
 
-HAL_GPIO_WritePin( IMU_CS_GPIO_PORT, IMU_CS_PIN, GPIO_PIN_RESET );
+HAL_GPIO_WritePin( IMU_NSS_GPIO_PORT, IMU_NSS_PIN, GPIO_PIN_RESET );
 __NOP(); __NOP();
 hal_status = HAL_SPI_TransmitReceive( &IMU_SPI, tx, rx,
                                       (uint16_t)( len + 1U ),
                                       IMU_SPI_TIMEOUT_MS );
 __NOP(); __NOP();
-HAL_GPIO_WritePin( IMU_CS_GPIO_PORT, IMU_CS_PIN, GPIO_PIN_SET );
+HAL_GPIO_WritePin( IMU_NSS_GPIO_PORT, IMU_NSS_PIN, GPIO_PIN_SET );
 
 if ( hal_status == HAL_OK ) {
     memcpy( buf, &rx[1], len ); /* Skip dummy first byte */
@@ -279,8 +278,8 @@ HAL_Delay( ms );
 
 /**
   * @brief  Converts three half-float SFLP components to a unit quaternion.
-  * @note   ST packs only X, Y, Z into a TAG=0x13 FIFO slot; W is reconstructed
-  *         from the unit quaternion constraint: W = sqrt(1 − x² − y² − z²).
+  * @note   ST packs only X, Y, Z into a TAG=0x13 FIFO slot; W is defined:
+  *         w = sqrt(1 − x² − y² − z²) [unit quaterinion]
   *         If numerical noise causes |xyz|² > 1, XYZ is normalised first so
   *         the output remains a valid unit quaternion.
   *         Uses the vendor-provided lsm6dsv320x_from_quaternion_lsb_to_float() 
@@ -454,9 +453,9 @@ IMU_STATUS imu_init
 /*--------------------------------------------------------------------------
  Local variables
 --------------------------------------------------------------------------*/
-uint8_t                      who_am_i   = 0U;
-int32_t                      pid_status = 0;
-lsm6dsv320x_pin_int1_route_t int1_route = { 0 };
+uint8_t                     who_am_i   = 0U;
+int32_t                     pid_status = 0;
+lsm6dsv320x_pin_int_route_t int1_route = { 0 };
 
 lsm6dsv320x_data_rate_t     xl_odr;
 lsm6dsv320x_data_rate_t     g_odr;
@@ -477,7 +476,7 @@ imu_cached_acc_mode = config->acc_mode;
 memset( imu_dma_tx_buf, 0, sizeof( imu_dma_tx_buf ) );
 memset( imu_dma_rx_buf, 0, sizeof( imu_dma_rx_buf ) );
 
-/* Wire PID callbacks */
+/* Wire PID callbacks into stmdev_ctx_t */
 imu_ctx.write_reg = platform_spi_write;
 imu_ctx.read_reg  = platform_spi_read;
 imu_ctx.mdelay    = platform_delay_ms;
@@ -493,16 +492,16 @@ imu_ctx.handle    = NULL;
 HAL_NVIC_DisableIRQ( EXTI4_IRQn );
 
 /* SW reset: all control registers restored to datasheet defaults.
-   SW_RESET bit in CTRL3 (12h) self-clears after completion.
+   lsm6dsv320x_sw_reset() polls until SW_RESET self-clears.
    DS14623 Rev3 §9.16. */
-pid_status |= lsm6dsv320x_reset_set( &imu_ctx, LSM6DSV320X_RESTORE_CTRL_REGS );
+pid_status = lsm6dsv320x_sw_reset( &imu_ctx );
 if ( pid_status != 0 ) { return IMU_INIT_FAIL; }
 platform_delay_ms( 10U );
 
 /* Verify device identity - WHO_AM_I (0Fh) must read 0x73. DS14623 §9.13. */
-pid_status |= lsm6dsv320x_device_id_get( &imu_ctx, &who_am_i );
-if ( pid_status != 0 )      { return IMU_ERROR;          }
-if ( who_am_i != IMU_WHO_AM_I_VAL ) { return IMU_UNRECOGNIZED_ID; }
+pid_status = lsm6dsv320x_device_id_get( &imu_ctx, &who_am_i );
+if ( pid_status != 0 )                  { return IMU_ERROR;          }
+if ( who_am_i != IMU_WHO_AM_I_VAL )     { return IMU_UNRECOGNIZED_ID; }
 
 /*
  * Map user-configured ODR to target hardware registers.
@@ -561,24 +560,18 @@ pid_status |= lsm6dsv320x_gy_data_rate_set( &imu_ctx, g_odr  );
 /*
  * Full-scale and ODR configuration - two separate accelerometer chains.
  *
- * Low-G chain  (±2/4/8/16 g):
- *   CTRL8 (17h) FS_XL[1:0] - 2-bit field, maximum encodable value is 11b=±16g.
- *   Written by lsm6dsv320x_xl_full_scale_set() via the ST PID.
+ * Low-G chain (±2/4/8/16 g):
+ *   Configured via standard control registers.
  *
  * High-G chain (±32..320 g):
- *   CTRL1_XL_HG (4Eh) - separate register entirely.
- *   FS_XL_HG[2:0] bits[2:0]: 000=±32g, 001=±64g, 010=±128g, 011=±256g, 100=±320g.
- *   ODR_XL_HG[2:0] bits[5:3]: 3-bit code per Table 149 (NOT the same as Table 54).
- *     011=480Hz, 100=960Hz, 101=1.92kHz, 110=3.84kHz, 111=7.68kHz.
- *   XL_HG_REGOUT_EN bit[7]=1 to expose data on output registers.
- *   Written directly via lsm6dsv320x_write_reg() [the ST PID does not provide
- *   a dedicated wrapper that touches register 4Eh sadly].
- *   The low-G chain must additionally be forced to ±16g high-performance mode
- *   when the high-G chain is active. DS14623 Rev3 §6.1.2, Tables 148-150.
+ *   Configured via a separate register entirely (CTRL1_XL_HG).
+ *   Data exposure on the output registers must be explicitly enabled.
+ *   Note: The low-G chain must be forced to ±16g in high-performance mode 
+ *   whenever the high-G chain is active (DS14623 Rev3 §6.1.2).
  *
  * SFLP compatibility note (DS14623 Rev3 §2.8):
- *   SFLP calculations rely on the low-G accelerometer. Under high-G boost 
- *   conditions (>16g), the low-G chain saturates, causing degradation of the 
+ *   SFLP calculations rely on the low-G accelerometer. Under high-G 
+ *   conditions (>16g), the low-G chain saturates, which degrades the 
  *   on-chip quaternion output. SFLP estimates should be gated as invalid 
  *   during high-G operating phases.
  */
@@ -601,7 +594,7 @@ if ( config->acc_fs >= IMU_ACC_FS_32G ) {
         case IMU_ODR_960HZ:  hg_odr_code = 0x04U; break; /* 100 = 960 Hz  */
         case IMU_ODR_3840HZ: hg_odr_code = 0x06U; break; /* 110 = 3.84kHz */
         case IMU_ODR_7680HZ: hg_odr_code = 0x07U; break; /* 111 = 7.68kHz */
-        case IMU_ODR_1920HZ:                              /* fall-through  */
+        case IMU_ODR_1920HZ:                             /* fall-through  */
         default:             hg_odr_code = 0x05U; break; /* 101 = 1.92kHz */
     }
 
@@ -611,11 +604,11 @@ if ( config->acc_fs >= IMU_ACC_FS_32G ) {
         case IMU_ACC_FS_128G: hg_fs_code = 0x02U; break;
         case IMU_ACC_FS_256G: hg_fs_code = 0x03U; break;
         case IMU_ACC_FS_320G: hg_fs_code = 0x04U; break;
-        case IMU_ACC_FS_32G:                       /* fall-through */
+        case IMU_ACC_FS_32G:  /* fall-through */
         default:              hg_fs_code = 0x00U; break;
     }
 
-    ctrl1_xl_hg = (uint8_t)( 0x80U                       /* XL_HG_REGOUT_EN */
+    ctrl1_xl_hg = (uint8_t)( 0x80U                         /* XL_HG_REGOUT_EN */
                             | ( hg_odr_code << 3U )        /* ODR_XL_HG[2:0]  */
                             | ( hg_fs_code  & 0x07U ) );   /* FS_XL_HG[2:0]   */
 
@@ -623,14 +616,13 @@ if ( config->acc_fs >= IMU_ACC_FS_32G ) {
                                          LSM6DSV320X_CTRL1_XL_HG,
                                          &ctrl1_xl_hg, 1 );
 
-    /* Force low-G chain to ±16g so it remains in a valid state.
-       High-G chain requires low-G in high-performance mode (§6.1.2). */
+    /* Force low-G chain to ±16g HP mode. DS14623 Rev3 §6.1.2. */
     pid_status |= lsm6dsv320x_xl_full_scale_set( &imu_ctx, LSM6DSV320X_16g );
 
     /* Enable XL_HG_BATCH_EN in COUNTER_BDR_REG1 (0Bh) bit[5]
        so high-G data is routed to the FIFO. DS14623 Rev3 Table 44.
        Read-modify-write to preserve the other bits (TRIG_COUNTER_BDR, CNT_BDR). */
-    if ( config->fifo_enable ){
+    if ( config->fifo_enable ) {
         uint8_t bdr_reg = 0U;
         pid_status |= lsm6dsv320x_read_reg( &imu_ctx,
                                             LSM6DSV320X_COUNTER_BDR_REG1,
@@ -643,15 +635,15 @@ if ( config->acc_fs >= IMU_ACC_FS_32G ) {
 } else {
     /*
      * Low-G chain: map IMU_ACC_FS enum to lsm6dsv320x_xl_full_scale_t
-     * register code. Direct cast is no longer safe since IMU_ACC_FS is
-     * now decoupled from the ST PID enum. DS14623 Rev3 Table 70.
+     * register code. 
+     * DS14623 Rev3 Table 70.
      */
     lsm6dsv320x_xl_full_scale_t xl_fs;
     switch ( config->acc_fs ) {
         case IMU_ACC_FS_4G:  xl_fs = LSM6DSV320X_4g;  break;
         case IMU_ACC_FS_8G:  xl_fs = LSM6DSV320X_8g;  break;
         case IMU_ACC_FS_16G: xl_fs = LSM6DSV320X_16g; break;
-        case IMU_ACC_FS_2G:                            /* fall-through */
+        case IMU_ACC_FS_2G:  /* fall-through */
         default:             xl_fs = LSM6DSV320X_2g;  break;
     }
     pid_status |= lsm6dsv320x_xl_full_scale_set( &imu_ctx, xl_fs );
@@ -659,18 +651,16 @@ if ( config->acc_fs >= IMU_ACC_FS_32G ) {
 
 /* Gyro FS: map IMU_GYRO_FS to lsm6dsv320x_gy_full_scale_t. DS14623 Table 65. */
 {
-
     lsm6dsv320x_gy_full_scale_t gy_fs;
-switch ( config->gyro_fs ) {
-    case IMU_GYRO_FS_500DPS:  gy_fs = LSM6DSV320X_500dps;  break;
-    case IMU_GYRO_FS_1000DPS: gy_fs = LSM6DSV320X_1000dps; break;
-    case IMU_GYRO_FS_2000DPS: gy_fs = LSM6DSV320X_2000dps; break;
-    case IMU_GYRO_FS_4000DPS: gy_fs = LSM6DSV320X_4000dps; break;
-    case IMU_GYRO_FS_250DPS:                                /* fall-through */
-    default:                  gy_fs = LSM6DSV320X_250dps;  break;
-}
-pid_status |= lsm6dsv320x_gy_full_scale_set( &imu_ctx, gy_fs );
-
+    switch ( config->gyro_fs ) {
+        case IMU_GYRO_FS_500DPS:  gy_fs = LSM6DSV320X_500dps;  break;
+        case IMU_GYRO_FS_1000DPS: gy_fs = LSM6DSV320X_1000dps; break;
+        case IMU_GYRO_FS_2000DPS: gy_fs = LSM6DSV320X_2000dps; break;
+        case IMU_GYRO_FS_4000DPS: gy_fs = LSM6DSV320X_4000dps; break;
+        case IMU_GYRO_FS_250DPS:  /* fall-through */
+        default:                  gy_fs = LSM6DSV320X_250dps;  break;
+    }
+    pid_status |= lsm6dsv320x_gy_full_scale_set( &imu_ctx, gy_fs );
 }
 
 /* Cache FS for imu_scale_raw() sensitivity lookup */
@@ -678,28 +668,29 @@ imu_acc_fs  = config->acc_fs;
 imu_gyro_fs = config->gyro_fs;
 
 /*
- * Operating modes: CTRL1 (10h) OP_MODE_XL[2:0], CTRL2 (11h) OP_MODE_G[2:0].
- * DS14623 Rev3 §6.1.2: when the high-G chain is active, the low-G chain MUST
- * be in high-performance mode. Silently override acc_mode here so the caller
- * does not need to know this hardware constraint. The override is applied
- * regardless of what the config struct contains.
+ * Registers: CTRL1 (10h) OP_MODE_XL[2:0], CTRL2 (11h) OP_MODE_G[2:0].
+ *
+ * Hardware Constraint (DS14623 Rev3 §6.1.2):
+ * When the high-G chain is active, the low-G chain MUST run in high-performance mode.
+ *
+ * Implementation:
+ * Silently override `acc_mode` to abstract this constraint from the caller, 
+ * ignoring any contrary value provided in the configuration struct.
  */
 {
-
-lsm6dsv320x_xl_mode_t xl_mode;
-IMU_ACC_MODE effective_acc_mode = ( config->acc_fs >= IMU_ACC_FS_32G )
-                                ? IMU_ACC_MODE_HP
-                                : config->acc_mode;
-switch ( effective_acc_mode ) {
-    case IMU_ACC_MODE_NORMAL: xl_mode = LSM6DSV320X_XL_NORMAL_MD;          break;
-    case IMU_ACC_MODE_LP1:    xl_mode = LSM6DSV320X_XL_LOW_POWER_2_AVG_MD; break;
-    case IMU_ACC_MODE_LP2:    xl_mode = LSM6DSV320X_XL_LOW_POWER_4_AVG_MD; break;
-    case IMU_ACC_MODE_LP3:    xl_mode = LSM6DSV320X_XL_LOW_POWER_8_AVG_MD; break;
-    case IMU_ACC_MODE_HP:                                                   /* fall-through */
-    default:                  xl_mode = LSM6DSV320X_XL_HIGH_PERFORMANCE_MD; break;
-}
-pid_status |= lsm6dsv320x_xl_mode_set( &imu_ctx, xl_mode );
-
+    lsm6dsv320x_xl_mode_t xl_mode;
+    IMU_ACC_MODE effective_acc_mode = ( config->acc_fs >= IMU_ACC_FS_32G )
+                                    ? IMU_ACC_MODE_HP
+                                    : config->acc_mode;
+    switch ( effective_acc_mode ) {
+        case IMU_ACC_MODE_NORMAL: xl_mode = LSM6DSV320X_XL_NORMAL_MD;          break;
+        case IMU_ACC_MODE_LP1:    xl_mode = LSM6DSV320X_XL_LOW_POWER_2_AVG_MD; break;
+        case IMU_ACC_MODE_LP2:    xl_mode = LSM6DSV320X_XL_LOW_POWER_4_AVG_MD; break;
+        case IMU_ACC_MODE_LP3:    xl_mode = LSM6DSV320X_XL_LOW_POWER_8_AVG_MD; break;
+        case IMU_ACC_MODE_HP:     /* fall-through */
+        default:                  xl_mode = LSM6DSV320X_XL_HIGH_PERFORMANCE_MD; break;
+    }
+    pid_status |= lsm6dsv320x_xl_mode_set( &imu_ctx, xl_mode );
 }
 
 pid_status |= lsm6dsv320x_gy_mode_set( &imu_ctx,
@@ -745,17 +736,18 @@ if ( config->sflp_enable ) {
 
 
 /* -----------------------------------------------------------------------
-   FIFO (optional, required for the DMA async path)
-   BDR matches the ODR selected above.
-   FIFO_MODE = continuous (LSM6DSV320X_STREAM_MODE, 110b).
-   Watermark is calculated dynamically from the enabled slot types so INT1
-   fires once per complete sample group when SFLP and the raw ODR share
-   the same rate (480 Hz). At higher raw ODRs (e.g. 1.92 kHz) SFLP - capped
-   at 480 Hz - arrives less often than this; see IMU_DMA_BUF_SLOTS in
-   imu_lsm.h for how the DMA path is sized to drain the resulting backlog
-   regardless. DS14623 Rev3 Table 36:
-   "1 LSB = TAG (1 byte) + 1 sensor (6 bytes) written in FIFO."
-   DS14623 Rev3 §9.7-9.8, FIFO_CTRL3 (09h), FIFO_CTRL4 (0Ah).
+ * FIFO Configuration (Optional; required only for the DMA async path):
+ * - BDR (Batching Data Rate) is configured to match the selected ODR.
+ * - FIFO_MODE is set to continuous/stream mode (LSM6DSV320X_STREAM_MODE, 110b).
+ * - Watermark is dynamically calculated from enabled slot types. (INT1 fires per
+ *   finished sample group when SFLP = raw ODR @ same rate (480Hz))
+ * - At higher raw ODRs (e.g., 1.92 kHz), SFLP is capped at 480 Hz and arrives
+ *   less frequently. See IMU_DMA_BUF_SLOTS in imu_lsm.h for how the DMA buffer
+ *   is sized to handle and drain the resulting backlog.
+ *
+ * References (Datasheet DS14623 Rev 3):
+ * - Table 36: "1 LSB = TAG (1 byte) + 1 sensor (6 bytes) written in FIFO."
+ * - Sections 9.7–9.8: FIFO_CTRL3 (09h), FIFO_CTRL4 (0Ah).
    ----------------------------------------------------------------------- */
 if ( config->fifo_enable ) {
     lsm6dsv320x_fifo_sflp_raw_t sflp_batch  = { 0 };
@@ -803,7 +795,7 @@ if ( config->fifo_enable ) {
     pid_status |= lsm6dsv320x_pin_int1_route_set( &imu_ctx, &int1_route );
 
     if ( pid_status != 0 ) { return IMU_CONFIG_FAIL; }
-    }
+}
 
 HAL_NVIC_EnableIRQ( EXTI4_IRQn );
 
@@ -844,7 +836,7 @@ if ( new_is_hg )
         case IMU_ODR_960HZ:  hg_odr_code = 0x04U; break;
         case IMU_ODR_3840HZ: hg_odr_code = 0x06U; break;
         case IMU_ODR_7680HZ: hg_odr_code = 0x07U; break;
-        case IMU_ODR_1920HZ:                       /* fall-through */
+        case IMU_ODR_1920HZ: /* fall-through */
         default:             hg_odr_code = 0x05U; break;
     }
 
@@ -854,11 +846,11 @@ if ( new_is_hg )
         case IMU_ACC_FS_128G: hg_fs_code = 0x02U; break;
         case IMU_ACC_FS_256G: hg_fs_code = 0x03U; break;
         case IMU_ACC_FS_320G: hg_fs_code = 0x04U; break;
-        case IMU_ACC_FS_32G:                       /* fall-through */
+        case IMU_ACC_FS_32G:  /* fall-through */
         default:              hg_fs_code = 0x00U; break;
     }
 
-    ctrl1_xl_hg = (uint8_t)( 0x80U                      /* XL_HG_REGOUT_EN */
+    ctrl1_xl_hg = (uint8_t)( 0x80U                        /* XL_HG_REGOUT_EN */
                             | ( hg_odr_code << 3U )       /* ODR_XL_HG[2:0]  */
                             | ( hg_fs_code  & 0x07U ) );  /* FS_XL_HG[2:0]   */
 
@@ -893,7 +885,7 @@ if ( new_is_hg )
         case IMU_ACC_FS_4G:  xl_fs = LSM6DSV320X_4g;  break;
         case IMU_ACC_FS_8G:  xl_fs = LSM6DSV320X_8g;  break;
         case IMU_ACC_FS_16G: xl_fs = LSM6DSV320X_16g; break;
-        case IMU_ACC_FS_2G:                            /* fall-through */
+        case IMU_ACC_FS_2G:  /* fall-through */
         default:             xl_fs = LSM6DSV320X_2g;  break;
     }
     pid_status |= lsm6dsv320x_xl_full_scale_set( &imu_ctx, xl_fs );
@@ -923,7 +915,7 @@ if ( new_is_hg )
                 case IMU_ODR_960HZ:  xl_bdr = LSM6DSV320X_XL_BATCHED_AT_960Hz;  break;
                 case IMU_ODR_3840HZ: xl_bdr = LSM6DSV320X_XL_BATCHED_AT_3840Hz; break;
                 case IMU_ODR_7680HZ: xl_bdr = LSM6DSV320X_XL_BATCHED_AT_7680Hz; break;
-                case IMU_ODR_1920HZ:                                              /* fall-through */
+                case IMU_ODR_1920HZ: /* fall-through */
                 default:             xl_bdr = LSM6DSV320X_XL_BATCHED_AT_1920Hz; break;
             }
             pid_status |= lsm6dsv320x_fifo_xl_batch_set( &imu_ctx, xl_bdr );
@@ -942,7 +934,7 @@ if ( new_is_hg )
                 case IMU_ACC_MODE_LP1:    restore_mode = LSM6DSV320X_XL_LOW_POWER_2_AVG_MD; break;
                 case IMU_ACC_MODE_LP2:    restore_mode = LSM6DSV320X_XL_LOW_POWER_4_AVG_MD; break;
                 case IMU_ACC_MODE_LP3:    restore_mode = LSM6DSV320X_XL_LOW_POWER_8_AVG_MD; break;
-                case IMU_ACC_MODE_HP:                                                         /* fall-through */
+                case IMU_ACC_MODE_HP:     /* fall-through */
                 default:                  restore_mode = LSM6DSV320X_XL_HIGH_PERFORMANCE_MD; break;
             }
             pid_status |= lsm6dsv320x_xl_mode_set( &imu_ctx, restore_mode );
@@ -1009,7 +1001,7 @@ switch ( effective_acc_mode ) {
     case IMU_ACC_MODE_LP1:    xl_mode = LSM6DSV320X_XL_LOW_POWER_2_AVG_MD;  break;
     case IMU_ACC_MODE_LP2:    xl_mode = LSM6DSV320X_XL_LOW_POWER_4_AVG_MD;  break;
     case IMU_ACC_MODE_LP3:    xl_mode = LSM6DSV320X_XL_LOW_POWER_8_AVG_MD;  break;
-    case IMU_ACC_MODE_HP:                                                    /* fall-through */
+    case IMU_ACC_MODE_HP:     /* fall-through */
     default:                  xl_mode = LSM6DSV320X_XL_HIGH_PERFORMANCE_MD; break;
 }
 
@@ -1022,7 +1014,7 @@ return ( pid_status == 0 ) ? IMU_OK : IMU_CONFIG_FAIL;
 
 /**
   * @brief  Polled read of raw Accel + Gyro (Blocking).
-  * @note   Reads STATUS_REG (1Eh) once per loop iteration with a single SPI
+  * @note   Reads STATUS_REG (1Eh) once per loop iteration w/ a single SPI
   *         transaction. DS14623 Rev3 Table 84/85:
   *           Bit 1 (GDA):    Gyro new data ready.
   *           Bit 0 (XLDA):   Low-G accel new data ready.
@@ -1037,11 +1029,11 @@ IMU_STATUS imu_read_sync
     IMU_RAW* raw
     )
 {
-lsm6dsv320x_axis3bit16_t data_raw = { 0 };
-int32_t                  pid_status;
-uint32_t                 tick_start;
-bool                     accel_ready = false;
-bool                     gyro_ready  = false;
+int16_t  data_raw[3] = { 0 };
+int32_t  pid_status;
+uint32_t tick_start;
+bool     accel_ready = false;
+bool     gyro_ready  = false;
 
 /* Poll STATUS_REG (1Eh) : one SPI transaction per loop iteration */
 tick_start = HAL_GetTick();
@@ -1051,7 +1043,7 @@ do {
                                        &status_reg, 1 );
     if ( pid_status != 0 ) { return IMU_ERROR; }
 
-    gyro_ready = ( ( status_reg & 0x02U ) != 0U ); /* Bit 1: GDA     */
+    gyro_ready = ( ( status_reg & 0x02U ) != 0U );      /* Bit 1: GDA     */
 
     if ( imu_acc_fs >= IMU_ACC_FS_32G ) {
         accel_ready = ( ( status_reg & 0x08U ) != 0U ); /* Bit 3: XLHGDA */
@@ -1066,15 +1058,17 @@ if ( !accel_ready || !gyro_ready ) {
     return IMU_TIMEOUT;
 }
 
-/* Gyro: OUTX_L_G (22h) -> OUTZ_H_G (27h) */
-pid_status = lsm6dsv320x_angular_rate_raw_get( &imu_ctx, data_raw.i16bit );
+/* Gyro: lsm6dsv320x_angular_rate_raw_get() takes int16_t 
+ * OUTX_L_G (22h) -> OUTZ_H_G (27h)
+ */
+pid_status = lsm6dsv320x_angular_rate_raw_get( &imu_ctx, data_raw );
 if ( pid_status != 0 ) { return IMU_ERROR; }
-raw->gyro_x = data_raw.i16bit[0];
-raw->gyro_y = data_raw.i16bit[1];
-raw->gyro_z = data_raw.i16bit[2];
+raw->gyro_x = data_raw[0];
+raw->gyro_y = data_raw[1];
+raw->gyro_z = data_raw[2];
 
 /*
- * Accelerometer read: branch on active sensing chain.
+ *   Accelerometer read: branch on active sensing chain.
  *   Low-G : OUTX_L_A (28h) -> OUTZ_H_A (2Dh) via ST PID wrapper.
  *   High-G: UI_OUTX_L_A_OIS_HG (34h) -> UI_OUTZ_H_A_OIS_HG (39h).
  *           6 bytes, LSB-first int16 pairs. DS14623 Rev3 §9.39-9.41.
@@ -1089,11 +1083,12 @@ if ( imu_acc_fs >= IMU_ACC_FS_32G ) {
     raw->accel_y = (int16_t)( ( (uint16_t)hg_bytes[3] << 8U ) | hg_bytes[2] );
     raw->accel_z = (int16_t)( ( (uint16_t)hg_bytes[5] << 8U ) | hg_bytes[4] );
 } else {
-    pid_status = lsm6dsv320x_acceleration_raw_get( &imu_ctx, data_raw.i16bit );
+    /* lsm6dsv320x_acceleration_raw_get() takes int16_t* */
+    pid_status = lsm6dsv320x_acceleration_raw_get( &imu_ctx, data_raw );
     if ( pid_status != 0 ) { return IMU_ERROR; }
-    raw->accel_x = data_raw.i16bit[0];
-    raw->accel_y = data_raw.i16bit[1];
-    raw->accel_z = data_raw.i16bit[2];
+    raw->accel_x = data_raw[0];
+    raw->accel_y = data_raw[1];
+    raw->accel_z = data_raw[2];
 }
 
 return IMU_OK;
@@ -1102,12 +1097,10 @@ return IMU_OK;
 
 /**
   * @brief  Blocking SFLP/Quaternion retrieval.
-  * @note   lsm6dsv320x_sflp_quaternion_get() internally opens FUNC_CFG_ACCESS
-  *         (01h), reads SFLP_QUATx (2Ah-31h) from the embedded functions bank,
-  *         converts half-float values to float32, then closes the bank.
-  *         DS14623 Rev3 §13.23-13.27. Each PID call is checked individually
-  *         to avoid assigning uninitialized values on partial failure.
-  *         Intended for BIT / debug use.
+  * @note   Convert with lsm6dsv320x_from_gravity_lsb_to_mg() and
+  *         lsm6dsv320x_from_gbias_lsb_to_mdps() respectively.
+  *           lsm6dsv320x_sflp_gravity_raw_get() -> int16_t[3] in mg LSBs
+  *           lsm6dsv320x_sflp_gbias_raw_get()   -> int16_t[3] in mdps LSBs
   */
 IMU_STATUS imu_read_sflp_sync
     (
@@ -1115,13 +1108,14 @@ IMU_STATUS imu_read_sflp_sync
     )
 {
 int32_t                  pid_status;
-lsm6dsv320x_quaternion_t quat    = { 0 };
-lsm6dsv320x_gravity_t    gravity = { 0 };
-lsm6dsv320x_gbias_t      gbias   = { 0 };
+lsm6dsv320x_quaternion_t quat        = { 0 };
+int16_t                  grav_raw[3] = { 0 };   
+int16_t                  gbias_raw[3]= { 0 };   
 
 if ( !imu_sflp_enabled ) { return IMU_CONFIG_FAIL; }
 
-/* Quaternion: SFLP_QUATx (2Ah-31h). DS14623 Rev3 §13.23-13.27. */
+/* DS14623 Rev3 §13.23-13.27. (2Ah-31h)*/
+/* Quaternion */
 pid_status = lsm6dsv320x_sflp_quaternion_get( &imu_ctx, &quat );
 if ( pid_status != 0 ) { return IMU_ERROR; }
 sflp->quat_w = quat.quat_w;
@@ -1129,19 +1123,19 @@ sflp->quat_x = quat.quat_x;
 sflp->quat_y = quat.quat_y;
 sflp->quat_z = quat.quat_z;
 
-/* Gravity vector: SFLP_GRAVx (1Eh-23h). DS14623 Rev3 §13.19-13.22. */
-pid_status = lsm6dsv320x_sflp_gravity_get( &imu_ctx, &gravity );
+/* Gravity vector, raw_get() -> float */
+pid_status = lsm6dsv320x_sflp_gravity_raw_get( &imu_ctx, grav_raw );
 if ( pid_status != 0 ) { return IMU_ERROR; }
-sflp->grav_x = gravity.x;
-sflp->grav_y = gravity.y;
-sflp->grav_z = gravity.z;
+sflp->grav_x = lsm6dsv320x_from_gravity_lsb_to_mg( grav_raw[0] );
+sflp->grav_y = lsm6dsv320x_from_gravity_lsb_to_mg( grav_raw[1] );
+sflp->grav_z = lsm6dsv320x_from_gravity_lsb_to_mg( grav_raw[2] );
 
-/* Gyroscope bias: SFLP_GBIASx (18h-1Dh). DS14623 Rev3 §13.14-13.18. */
-pid_status = lsm6dsv320x_sflp_gbias_get( &imu_ctx, &gbias );
+/* Gyroscope bias, raw_get() -> float */
+pid_status = lsm6dsv320x_sflp_gbias_raw_get( &imu_ctx, gbias_raw );
 if ( pid_status != 0 ) { return IMU_ERROR; }
-sflp->gbias_x = gbias.gbias_x;
-sflp->gbias_y = gbias.gbias_y;
-sflp->gbias_z = gbias.gbias_z;
+sflp->gbias_x = lsm6dsv320x_from_gbias_lsb_to_mdps( gbias_raw[0] );
+sflp->gbias_y = lsm6dsv320x_from_gbias_lsb_to_mdps( gbias_raw[1] );
+sflp->gbias_z = lsm6dsv320x_from_gbias_lsb_to_mdps( gbias_raw[2] );
 
 return IMU_OK;
 } /* imu_read_sflp_sync */
@@ -1157,7 +1151,7 @@ return IMU_OK;
   *         returns immediately. CS is held low until imu_process_async_cb()
   *         de-asserts it.
   *
-  *         The number of slots to burst is clamped to IMU_DMA_BUF_SLOTS to
+  *         The number of slots to burst is limited to IMU_DMA_BUF_SLOTS to
   *         prevent overrunning the fixed-size DMA buffers.
   *         DS14623 Rev3 §9.90 (FIFO_DATA_OUT_TAG 78h).
   * @retval IMU_OK, IMU_BUSY (DMA already in flight), or IMU_NO_DATA.
@@ -1178,7 +1172,7 @@ if ( imu_dma_busy ) { return IMU_BUSY; }
 /* Read FIFO_STATUS1/2: DIFF_FIFO[8:0] gives unread word count.
    DS14623 Rev3 §9.25-9.26. */
 pid_status = lsm6dsv320x_fifo_status_get( &imu_ctx, &fifo_status );
-if ( pid_status != 0 )        { return IMU_ERROR;   }
+if ( pid_status != 0 )              { return IMU_ERROR;   }
 if ( fifo_status.fifo_level == 0U ) { return IMU_NO_DATA; }
 
 /* Clamp to the fixed DMA buffer capacity */
@@ -1216,7 +1210,7 @@ SCB_InvalidateDCache_by_Addr( (uint32_t*)imu_dma_rx_buf,
                                (int32_t)IMU_DMA_BUF_BYTES_ALIGNED );
 
 /* Assert CS and launch DMA - CS de-asserted in imu_process_async_cb() */
-HAL_GPIO_WritePin( IMU_CS_GPIO_PORT, IMU_CS_PIN, GPIO_PIN_RESET );
+HAL_GPIO_WritePin( IMU_NSS_GPIO_PORT, IMU_NSS_PIN, GPIO_PIN_RESET );
 __NOP(); __NOP();
 hal_status = HAL_SPI_TransmitReceive_DMA( &IMU_SPI,
                                           imu_dma_tx_buf,
@@ -1226,7 +1220,7 @@ hal_status = HAL_SPI_TransmitReceive_DMA( &IMU_SPI,
 if ( hal_status != HAL_OK ) {
     /* DMA failed to start - release CS and clear busy flag */
     __NOP(); __NOP();
-    HAL_GPIO_WritePin( IMU_CS_GPIO_PORT, IMU_CS_PIN, GPIO_PIN_SET );
+    HAL_GPIO_WritePin( IMU_NSS_GPIO_PORT, IMU_NSS_PIN, GPIO_PIN_SET );
     imu_dma_busy = false;
     return IMU_ERROR;
 }
@@ -1258,7 +1252,7 @@ void imu_process_async_cb
 {
 /* De-assert CS - must come before any data access */
 __NOP(); __NOP();
-HAL_GPIO_WritePin( IMU_CS_GPIO_PORT, IMU_CS_PIN, GPIO_PIN_SET );
+HAL_GPIO_WritePin( IMU_NSS_GPIO_PORT, IMU_NSS_PIN, GPIO_PIN_SET );
 
 if ( !imu_dma_busy ) { return; }
 
@@ -1293,7 +1287,7 @@ void imu_process_async_error_cb
 {
 /* De-assert CS immediately to free the shared SPI bus */
 __NOP(); __NOP();
-HAL_GPIO_WritePin( IMU_CS_GPIO_PORT, IMU_CS_PIN, GPIO_PIN_SET );
+HAL_GPIO_WritePin( IMU_NSS_GPIO_PORT, IMU_NSS_PIN, GPIO_PIN_SET );
 
 imu_dma_busy  = false;
 imu_dma_ready = false;
@@ -1316,9 +1310,9 @@ return imu_dma_ready;
 
 /**
   * @brief  Thread-safe consumer - retrieves the latest DMA-parsed samples.
-  * @note   Parsing (lsm6dsv320x_from_quaternion_lsb_to_float / sflp2q / sqrtf) is performed here in
-  *         thread context rather than in the DMA ISR. This keeps ISR latency
-  *         minimal. The critical section covers only the memcpy of the raw DMA
+  * @note   Parsing (lsm6dsv320x_from_quaternion_lsb_to_float / sflp2q / sqrtf) is performed here
+  *         in thread context rather than in the DMA ISR.
+  *         This section covers only the memcpy of the raw DMA
   *         buffer and the slot count - the FPU-heavy parse runs outside it.
   *         Either pointer may be NULL if the caller only needs one dataset.
   * @param  raw:  Pointer to destination raw counts buffer  (may be NULL).
