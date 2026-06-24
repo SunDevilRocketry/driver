@@ -356,66 +356,6 @@ return baro_status;
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   * 
-* 		baro_get_pressure                                                      *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		retrieves a pressure reading from the sensor                           *
-*                                                                              *
-*******************************************************************************/
-BARO_STATUS baro_get_pressure
-	(
-    float* pressure_ptr  /* Out: Baro pressure */
-	)
-{
-/*------------------------------------------------------------------------------
-Local variables 
-------------------------------------------------------------------------------*/
-uint8_t     pressure_bytes[3]; /* Pressure raw readout bytes, LSB first   */
-uint32_t    raw_pressure;      /* Pressure raw readout in uint32_t format */
-float       comp_temp;         /* Compensation temperature                */
-BARO_STATUS baro_status;       /* Return codes for baro API calls         */
-
-
-/*------------------------------------------------------------------------------
-Initializations
-------------------------------------------------------------------------------*/
-raw_pressure = 0;
-comp_temp    = 0;
-baro_status  = BARO_OK;
-memset( &pressure_bytes[0], 0, sizeof( pressure_bytes ) );
-
-
-/*------------------------------------------------------------------------------
-API function implementation 
-------------------------------------------------------------------------------*/
-
-/* Read 3 consecutive pressure data registers */
-baro_status = read_regs( BARO_REG_PRESS_DATA, 
-                         sizeof( pressure_bytes ), 
-						 &pressure_bytes[0] );
-if ( baro_status != BARO_OK )
-	{
-	return BARO_I2C_ERROR;
-	}
-
-/* Combine all bytes value to 24 bit value */
-raw_pressure = ( ( (uint32_t) pressure_bytes[2] << 16 ) |
-                 ( (uint32_t) pressure_bytes[1] <<  8 ) |
-				 ( (uint32_t) pressure_bytes[0]       ) );
-
-/* Get compensation temperature for pressure compensation calculation */
-baro_status   = baro_get_temp( &comp_temp );
-
-/* Compensate using calibration data */
-*pressure_ptr = press_compensate( raw_pressure );
-
-return BARO_OK;
-} /* baro_get_pressure */
-
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
 * 		baro_get_temp                                                          *
 *                                                                              *
 * DESCRIPTION:                                                                 * 
@@ -467,24 +407,6 @@ raw_temp = ( ( (uint32_t) temp_bytes[2] << 16 ) |
 return BARO_OK;
 
 } /* baro_get_temp */
-
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		baro_get_altitude                                                      *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		gets the altitude of the rocket from the sensor readouts               *
-*                                                                              *
-*******************************************************************************/
-BARO_STATUS baro_get_altitude
-	(
-    void
-	)
-{
-return BARO_OK;
-} /* baro_get_altitude */
 
 
 /*------------------------------------------------------------------------------

@@ -445,34 +445,6 @@ IMU_STATUS imu_init
     IMU_CONFIG* imu_config_ptr /* IMU Configuration Settings */
     );
 
-/* Return the pointer to structure that updates the x,y,z acceleration values 
-   from the IMU */
-IMU_STATUS imu_get_accel_xyz
-    (
-    IMU_RAW *pIMU
-    );
-
-/* Return the pointer to structure that updates the x,y,z gyro values from the IMU */
-IMU_STATUS imu_get_gyro_xyz
-    (
-    IMU_RAW *pIMU
-    );
-
-#ifdef A0002_REV2
-/* Return a pointer to the struct that houses accel and gyro values from the IMU */
-IMU_STATUS imu_get_accel_and_gyro
-    (
-    IMU_RAW *pIMU
-    );
-#endif
-
-/* Return the pointer to structure that updates the x,y,z magnetometer values from 
-   the IMU */
-IMU_STATUS imu_get_mag_xyz
-    (
-    IMU_RAW *pIMU
-    );
-
 /* return the device ID of the IMU to verify that the IMU registers are accessible */
 IMU_STATUS imu_get_device_id
     (

@@ -132,53 +132,6 @@ return ign_status;
 } /* ign_cmd_execute */
 
 
-#if defined( ENGINE_CONTROLLER )
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		ign_ignite                                                             *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		Asserts the ignition signal to ignite the engine ematch. Returns a     *
-*       response code indicating if the ignition occured succesfully           *
-*                                                                              *
-*******************************************************************************/
-IGN_STATUS ign_ignite
-    (
-	void
-    )
-{
-/*------------------------------------------------------------------------------
- API function implementation
-------------------------------------------------------------------------------*/
-
-/* Check for e-match/switch continuity */
-if ( !ign_ematch_cont() )
-	{
-    /* No continuity across ematch and/or switch */
-    return IGN_EMATCH_CONT_FAIL; 
-    }
-
-/* Check that power supply is not USB */
-
-/* Assert ignition signal for 10 ms */
-HAL_GPIO_WritePin(FIRE_GPIO_PORT, FIRE_PIN, GPIO_PIN_SET  );
-HAL_Delay( IGN_BURN_DELAY );
-HAL_GPIO_WritePin(FIRE_GPIO_PORT, FIRE_PIN, GPIO_PIN_RESET);
-
-/* Check ematch continuity to check that ematch was lit */
-if ( !ign_ematch_cont() )
-	{
-    return IGN_SUCCESS;
-    }
-else /* Ignition unsuccessful */
-	{
-    return IGN_FAIL;
-    }
-
-} /* ignite */
-#endif /* #if defined( ENGINE_CONTROLLER ) */
-
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   * 
@@ -204,25 +157,6 @@ IGN_STATUS ign_status = 0; /* Status code to be returned */
  Call API functions 
 ------------------------------------------------------------------------------*/
 
-#if defined( ENGINE_CONTROLLER )
-/* Poll the ematch continuity pin */
-if ( ign_ematch_cont() )
-	{
-    ign_status |= IGN_E_CONT_MASK;
-    }
-
-/* Poll the solid propellant continuity pin */
-if ( ign_solid_prop_cont() )
-	{
-    ign_status |= IGN_SP_CONT_MASK;
-    }
-
-/* Poll the nozzle continuity pin */
-if ( ign_nozzle_cont() )
-	{
-    ign_status |= IGN_NOZ_CONT_MASK;
-    }
-#elif ( defined( FLIGHT_COMPUTER ) || defined( FLIGHT_COMPUTER_LITE ) )
 /* Poll the switch continuity pin */
 if ( ign_switch_cont() )
 	{
@@ -240,7 +174,6 @@ if ( ign_drogue_cont() )
 	{
     ign_status |= IGN_DROGUE_CONT_MASK;
     }
-#endif /* elif defined( FLIGHT_COMPUTER ) */
 
 /* Return the status code */
 return ign_status;
@@ -248,105 +181,6 @@ return ign_status;
 } /* ign_get_cont_info */
 
 
-#if defined( ENGINE_CONTROLLER )
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		solid_prop_cont                                                        *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		Returns TRUE if there is continuity across the solid propellant wire   *
-*       screw terminals                                                        *
-*                                                                              *
-*******************************************************************************/
-bool ign_solid_prop_cont
-	(
-	void
-	)
-{
-
-/* Check MCU GPIO State */
-uint8_t solid_prop_cont_pinstate = HAL_GPIO_ReadPin(SP_CONT_GPIO_PORT, SP_CONT_PIN);
-
-/* Return true if GPIO state is high*/
-if ( solid_prop_cont_pinstate == 0 )
-	{
-    return true;
-	}
-else
-	{
-    return false;
-    }
-
-} /* ign_solid_prop_cont */
-
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		ign_nozzle_cont                                                        *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		Returns TRUE if there is continuity across the nozzle wire screw       * 
-*       terminals                                                              *
-*                                                                              *
-*******************************************************************************/
-bool ign_nozzle_cont
-	(
-	void
-	)
-{
-
-/* Check MCU GPIO State */
-uint8_t nozzle_cont_pinstate = HAL_GPIO_ReadPin(NOZ_CONT_GPIO_PORT, NOZ_CONT_PIN);
-
-/* Return true if GPIO state is high*/
-if ( nozzle_cont_pinstate == 0 )
-	{
-    return true;
-	}
-else
-	{
-    return false;
-    }
-
-} /* ign_nozzle_cont */
-
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		ign_ematch_cont                                                        *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		Returns TRUE if there is continuity across the ematch and switch screw * 
-*       terminals                                                              *
-*                                                                              *
-*******************************************************************************/
-bool ign_ematch_cont
-	(
-	void
-	)
-{
-/* Check MCU GPIO State */
-uint8_t ematch_cont_pinstate = HAL_GPIO_ReadPin(E_CONT_GPIO_PORT, E_CONT_PIN);
-
-/* Return true if GPIO state is low */
-if ( ematch_cont_pinstate == 0 )
-	{
-    return false;
-	}
-else
-	{
-    return true;
-    }
-
-} /* ign_ematch_cont */
-
-#endif /* #if defined( ENGINE_CONTROLLER ) */
-
-
-#if ( defined( FLIGHT_COMPUTER ) || defined( FLIGHT_COMPUTER_LITE ) )
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   * 
@@ -510,10 +344,8 @@ else
     }
 
 } /* drogue_cont */
-#endif /* #if defined( FLIGHT_COMPUTER ) */
 
 
-#if ( defined( FLIGHT_COMPUTER ) || defined( FLIGHT_COMPUTER_LITE ) )
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   * 
@@ -566,7 +398,6 @@ if( !ign_switch_enabled )
 return ign_switch_cont();
 
 } /* switch_armed */
-#endif /* #if defined( FLIGHT_COMPUTER ) */
 
 
 /*******************************************************************************

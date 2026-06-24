@@ -263,23 +263,10 @@ BARO_STATUS baro_get_device_id
    	uint8_t* baro_id 
 	);
 
-
-/* gets pressure data from sensor */
-BARO_STATUS baro_get_pressure
-	(
-    float* pressure_ptr 
-	);
-
 /* gets temp data from sensor */
 BARO_STATUS baro_get_temp
 	(
     float* temp_ptr 
-	);
-
-/* converts pressure and temp data into altitude --> do research on formula */
-BARO_STATUS baro_get_altitude
-	(
-    void
 	);
 
 /* returns the baro_data_ready flag */
