@@ -24,7 +24,9 @@
 #ifndef IMU_LEGACY_H
 #define IMU_LEGACY_H
 
-#if !defined( A0010 )
+#if defined( A0010 )
+#error "imu_legacy.h is not supported on the A0010 hardware platform"
+#endif
 
 #include <stdbool.h>
 #include "stm32h7xx_hal.h"
@@ -515,7 +517,6 @@ MAG_TRIM imu_get_mag_trim();
 }
 #endif
 
-#endif /* !A0010 */
 #endif /* IMU_H */
 
 /*******************************************************************************

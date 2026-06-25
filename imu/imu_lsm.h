@@ -48,7 +48,10 @@
 #ifndef IMU_LSM_H
 #define IMU_LSM_H
 
-#if defined( A0010 )
+
+#if !defined( A0010 )
+#error "imu_lsm.h is only supported on the A0010 hardware"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -476,7 +479,6 @@ void imu_scale_raw
 }
 #endif
 
-#endif /* A0010 */
 #endif /* IMU_LSM_H */
 
 /*******************************************************************************

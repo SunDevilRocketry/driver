@@ -36,7 +36,7 @@
   *
   *        FIFO quaternion packing (DS14623 Rev3 §13.23, sflp2q convention):
   *          - TAG=0x13 carries X, Y, Z as 16-bit half-floats (IEEE 754-2008).
-  *          - w = sqrt(max(0, 1 − x^2 − y^2 − z^2)).
+  *          - w = sqrt(max(0, 1 − x² − y² − z²)).
   *          - One TAG=0x13 slot is self-contained (no state machine needed).
   *
   ******************************************************************************
@@ -48,7 +48,10 @@
   ******************************************************************************
   */
 
-#if defined( A0010 )
+#if !defined( A0010 )
+#error "imu_lsm.h is only supported on the A0010 hardware"
+#endif
+
 /*------------------------------------------------------------------------------
  Standard Includes
 ------------------------------------------------------------------------------*/
@@ -59,9 +62,7 @@
 /*------------------------------------------------------------------------------
  MCU Pins
 ------------------------------------------------------------------------------*/
-#if defined( A0010 )
-    #include "sdr_pin_defines_A0010.h"
-#endif
+#include "sdr_pin_defines_A0010.h"
 
 
 /*------------------------------------------------------------------------------
@@ -69,16 +70,23 @@
 ------------------------------------------------------------------------------*/
 #include "main.h"
 #include "imu_lsm.h"
-#include "error_sdr.h"   /* debug_assert() - mod/error_sdr/error_sdr.h */
+#include "error_sdr.h"   /* ERROR_CODE enums */
+#include "debug_sdr.h"   /* debug_assert() - mod/debug_sdr/debug_sdr.h */
 
 /*------------------------------------------------------------------------------
  Local Macros
 ------------------------------------------------------------------------------*/
 
 /**
+ * @brief Context-oriented assertion wrapper. Maps to debug_assert() with 
+ *        the appropriate IMU initialization error code.
+ */
+#define IMU_ASSERT( expr )  debug_assert( (expr), ERROR_IMU_INIT_ERROR )
+
+/**
  * @brief Capacity of the local SPI write transmit buffer.
  *        Sized to 64 bytes to safely accommodate address-byte overhead
- *        and maximum expected single payload writes (6-byte SFLP bias initialization).
+ *        and maximum expected single payload writes (6-byte SFLP bias init).
  */
 #define SPI_WRITE_TX_ARRAY_SIZE  ( 64U )
 
@@ -156,6 +164,32 @@ static void    platform_delay_ms ( uint32_t ms );
 static void    sflp2q            ( float quat[4], const uint16_t sflp[3] );
 static void    parse_fifo_slot   ( const uint8_t* slot,
                                    IMU_RAW* raw_ptr, IMU_SFLP_DATA* sflp_ptr );
+static lsm6dsv320x_data_rate_t map_odr( IMU_ODR odr );
+
+/*------------------------------------------------------------------------------
+ Internal Helpers
+------------------------------------------------------------------------------*/
+
+/**
+  * @brief  Maps a high-level IMU_ODR enum to the PID library data-rate enum.
+  * @note   Extracted from imu_init()'s ODR switch so that imu_set_accel_fs()
+  *         and imu_set_power_mode() can re-use the same mapping when calling
+  *         lsm6dsv320x_xl_setup() / lsm6dsv320x_gy_setup() with the cached ODR.
+  */
+static lsm6dsv320x_data_rate_t map_odr
+    (
+    IMU_ODR odr
+    )
+{
+switch ( odr ) {
+    case IMU_ODR_480HZ:  return LSM6DSV320X_ODR_AT_480Hz;
+    case IMU_ODR_960HZ:  return LSM6DSV320X_ODR_AT_960Hz;
+    case IMU_ODR_3840HZ: return LSM6DSV320X_ODR_AT_3840Hz;
+    case IMU_ODR_7680HZ: return LSM6DSV320X_ODR_AT_7680Hz;
+    case IMU_ODR_1920HZ:
+    default:             return LSM6DSV320X_ODR_AT_1920Hz;
+}
+} /* map_odr */
 
 
 /*------------------------------------------------------------------------------
@@ -188,7 +222,15 @@ HAL_StatusTypeDef hal_status;
 
 (void)handle;
 
-/* Reject if the address byte + payload would overflow the raw array. */
+/*
+ * Precondition: caller must never request a write larger than the fixed
+ * transmit array. In practice the largest PID write is 6 bytes (SFLP gbias)
+ * so this would only fire if new PID functionality were added without
+ * increasing SPI_WRITE_TX_ARRAY_SIZE.
+ */
+IMU_ASSERT( ( (uint32_t)len + 1U ) <= SPI_WRITE_TX_ARRAY_SIZE );
+
+/* Graceful fallback in release builds where the assert compiles out */
 if ( ( (uint32_t)len + 1U ) > SPI_WRITE_TX_ARRAY_SIZE ) {
     return 1;
 }
@@ -236,6 +278,9 @@ HAL_StatusTypeDef hal_status;
 
 (void)handle;
 
+/* Same overflow guard as platform_spi_write */
+IMU_ASSERT( ( (uint32_t)len + 1U ) <= SPI_READ_RX_ARRAY_SIZE );
+
 if ( ( (uint32_t)len + 1U ) > SPI_READ_RX_ARRAY_SIZE ) {
     return 1;
 }
@@ -272,17 +317,13 @@ HAL_Delay( ms );
 } /* platform_delay_ms */
 
 
-/*------------------------------------------------------------------------------
- Internal Helpers
-------------------------------------------------------------------------------*/
-
 /**
   * @brief  Converts three half-float SFLP components to a unit quaternion.
   * @note   ST packs only X, Y, Z into a TAG=0x13 FIFO slot; W is defined:
   *         w = sqrt(1 − x² − y² − z²) [unit quaterinion]
   *         If numerical noise causes |xyz|² > 1, XYZ is normalised first so
   *         the output remains a valid unit quaternion.
-  *         Uses the vendor-provided lsm6dsv320x_from_quaternion_lsb_to_float() 
+  *         Uses lsm6dsv320x_from_quaternion_lsb_to_float() 
   * @param  quat:  Output [x, y, z, w] indexed [0..3].
   * @param  sflp:  Three raw half-float values from the FIFO slot.
   */
@@ -335,13 +376,20 @@ static void parse_fifo_slot
     IMU_SFLP_DATA* sflp_ptr
     )
 {
+uint8_t  tag;
+uint16_t x_raw;
+uint16_t y_raw;
+uint16_t z_raw;
+
+IMU_ASSERT( slot != NULL );
+
 /* TAG_SENSOR[4:0] lives in bits[7:3] of the tag byte */
-uint8_t  tag = ( slot[0] >> 3U ) & 0x1FU;
+tag = ( slot[0] >> 3U ) & 0x1FU;
 
 /* Raw 16-bit words from the 6 data bytes (LSB first) */
-uint16_t x_raw = ( (uint16_t)slot[2] << 8U ) | slot[1];
-uint16_t y_raw = ( (uint16_t)slot[4] << 8U ) | slot[3];
-uint16_t z_raw = ( (uint16_t)slot[6] << 8U ) | slot[5];
+x_raw = ( (uint16_t)slot[2] << 8U ) | slot[1];
+y_raw = ( (uint16_t)slot[4] << 8U ) | slot[3];
+z_raw = ( (uint16_t)slot[6] << 8U ) | slot[5];
 
 switch ( tag ) {
     case IMU_FIFO_TAG_GYRO:
@@ -424,7 +472,7 @@ switch ( tag ) {
   * @note   Sequence:
   *           1. Wire PID callbacks.
   *           2. Disable INT1 EXTI (prevents spurious ISR during config).
-  *           3. SW reset (DS14623 Rev3 §9.16).
+  *           3. SW reset via lsm6dsv320x_sw_reset() (DS14623 Rev3 §9.16).
   *           4. WHO_AM_I verification.
   *           5. Set ODR, full-scale, power mode, BDU, IF_INC.
   *           6. Configure SFLP (optional).
@@ -459,9 +507,17 @@ lsm6dsv320x_pin_int_route_t int1_route = { 0 };
 
 lsm6dsv320x_data_rate_t     xl_odr;
 lsm6dsv320x_data_rate_t     g_odr;
+lsm6dsv320x_xl_mode_t       xl_mode;
+lsm6dsv320x_gy_mode_t       gy_mode;
 lsm6dsv320x_fifo_xl_batch_t xl_bdr;
 lsm6dsv320x_fifo_gy_batch_t g_bdr;
+IMU_ACC_MODE                effective_acc_mode;
 
+
+/*--------------------------------------------------------------------------
+ Precondition checks
+--------------------------------------------------------------------------*/
+IMU_ASSERT( config != NULL );
 
 /*--------------------------------------------------------------------------
  Initializations
@@ -492,7 +548,7 @@ imu_ctx.handle    = NULL;
 HAL_NVIC_DisableIRQ( EXTI4_IRQn );
 
 /* SW reset: all control registers restored to datasheet defaults.
-   lsm6dsv320x_sw_reset() polls until SW_RESET self-clears.
+   lsm6dsv320x_sw_reset() polls until SW_RESET self-clears (up to 3 ms).
    DS14623 Rev3 §9.16. */
 pid_status = lsm6dsv320x_sw_reset( &imu_ctx );
 if ( pid_status != 0 ) { return IMU_INIT_FAIL; }
@@ -500,20 +556,18 @@ platform_delay_ms( 10U );
 
 /* Verify device identity - WHO_AM_I (0Fh) must read 0x73. DS14623 §9.13. */
 pid_status = lsm6dsv320x_device_id_get( &imu_ctx, &who_am_i );
-if ( pid_status != 0 )                  { return IMU_ERROR;          }
-if ( who_am_i != IMU_WHO_AM_I_VAL )     { return IMU_UNRECOGNIZED_ID; }
+if ( pid_status != 0 )               { return IMU_ERROR;           }
+if ( who_am_i != IMU_WHO_AM_I_VAL )  { return IMU_UNRECOGNIZED_ID; }
 
 /*
- * Map user-configured ODR to target hardware registers.
- * To prevent FIFO sample rate mismatch and jitter, Accel ODR (CTRL1 10h),
- * Gyro ODR (CTRL2 11h), and FIFO Batch rates (FIFO_CTRL3 09h) are updated
- * synchronously from the same loop-coupled target rate.
- * Ref: DS14623 Rev3 Tables 54, 57, and 232.
+ * Resolve ODR and FIFO batch rate.
+ * Accel ODR (CTRL1 10h), Gyro ODR (CTRL2 11h), and FIFO Batch rates
+ * (FIFO_CTRL3 09h) are kept synchronised to the same target rate.
+ * DS14623 Rev3 Tables 54, 57, 232.
  *
- * NOTE: the High-G ODR field (ODR_XL_HG[2:0] in CTRL1_XL_HG 4Eh) uses a
- * separate 3-bit encoding (Table 149) that is NOT numerically equal to the
- * standard 4-bit XL ODR field. The hg_odr_reg byte below is built from the
- * raw bit code per Table 149 and written directly to CTRL1_XL_HG bits[5:3].
+ * NOTE: the High-G ODR field (CTRL1_XL_HG 4Eh bits[5:3]) uses a separate
+ * 3-bit encoding (Table 149) unrelated to the standard 4-bit XL ODR field.
+ * That is handled in the acc_fs >= 32G branch below.
  */
 switch ( config->odr ) {
     case IMU_ODR_480HZ:
@@ -542,10 +596,12 @@ switch ( config->odr ) {
         break;
     case IMU_ODR_1920HZ: /* fall-through to default */
     default:
-        /* Defensive check (debug builds only): any value reaching this
-           branch should be exactly IMU_ODR_1920HZ. Catches an out-of-range
-           enum value being passed in config->odr. */
-        debug_assert( config->odr == IMU_ODR_1920HZ );
+        /*
+         * Any value reaching this branch should be exactly IMU_ODR_1920HZ.
+         * If it is not, an out-of-range enum was passed in config->odr.
+         * Caught in debug builds; silently defaults to 1920 Hz in release.
+         */
+        IMU_ASSERT( config->odr == IMU_ODR_1920HZ );
         xl_odr = LSM6DSV320X_ODR_AT_1920Hz;
         g_odr  = LSM6DSV320X_ODR_AT_1920Hz;
         xl_bdr = LSM6DSV320X_XL_BATCHED_AT_1920Hz;
@@ -553,27 +609,47 @@ switch ( config->odr ) {
         break;
     }
 
-/* Apply loop-coupled ODR to accelerometer and gyroscope */
-pid_status |= lsm6dsv320x_xl_data_rate_set( &imu_ctx, xl_odr );
-pid_status |= lsm6dsv320x_gy_data_rate_set( &imu_ctx, g_odr  );
+/*
+ * Resolve accel operating mode.
+ * DS14623 Rev3 §6.1.2: the low-G chain must be in high-performance mode
+ * whenever the high-G chain is active. Silently override here so the caller
+ * doesn't need to know about this constraint.
+ */
+effective_acc_mode = ( config->acc_fs >= IMU_ACC_FS_32G )
+                   ? IMU_ACC_MODE_HP
+                   : config->acc_mode;
+
+switch ( effective_acc_mode ) {
+    case IMU_ACC_MODE_NORMAL: xl_mode = LSM6DSV320X_XL_NORMAL_MD;           break;
+    case IMU_ACC_MODE_LP1:    xl_mode = LSM6DSV320X_XL_LOW_POWER_2_AVG_MD;  break;
+    case IMU_ACC_MODE_LP2:    xl_mode = LSM6DSV320X_XL_LOW_POWER_4_AVG_MD;  break;
+    case IMU_ACC_MODE_LP3:    xl_mode = LSM6DSV320X_XL_LOW_POWER_8_AVG_MD;  break;
+    case IMU_ACC_MODE_HP:
+    default:                  xl_mode = LSM6DSV320X_XL_HIGH_PERFORMANCE_MD; break;
+}
+
+gy_mode = (lsm6dsv320x_gy_mode_t)config->gyro_mode;
 
 /*
- * Full-scale and ODR configuration - two separate accelerometer chains.
+ * Apply ODR + mode using lsm6dsv320x_xl_setup() / lsm6dsv320x_gy_setup().
+ * These are the non-deprecated successors to the separate _data_rate_set()
+ * + _mode_set() pairs. Combining ODR and mode in one call also lets the
+ * library validate their compatibility per AN6119 Tables 10/13 (e.g.
+ * 1.875 Hz is low-power only).
+ * DS14623 Rev3 CTRL1 (10h), CTRL2 (11h).
+ */
+pid_status |= lsm6dsv320x_xl_setup( &imu_ctx, xl_odr, xl_mode );
+pid_status |= lsm6dsv320x_gy_setup( &imu_ctx, g_odr,  gy_mode  );
+
+/*
+ * Full-scale configuration - two separate accelerometer sensing chains.
  *
  * Low-G chain (±2/4/8/16 g):
- *   Configured via standard control registers.
+ *   Standard control registers via lsm6dsv320x_xl_full_scale_set().
  *
  * High-G chain (±32..320 g):
- *   Configured via a separate register entirely (CTRL1_XL_HG).
- *   Data exposure on the output registers must be explicitly enabled.
- *   Note: The low-G chain must be forced to ±16g in high-performance mode 
- *   whenever the high-G chain is active (DS14623 Rev3 §6.1.2).
- *
- * SFLP compatibility note (DS14623 Rev3 §2.8):
- *   SFLP calculations rely on the low-G accelerometer. Under high-G 
- *   conditions (>16g), the low-G chain saturates, which degrades the 
- *   on-chip quaternion output. SFLP estimates should be gated as invalid 
- *   during high-G operating phases.
+ *   CTRL1_XL_HG (4Eh) only. The low-G chain must remain ON for SFLP
+ *   (§2.8), forced to ±16g HP mode (§6.1.2).
  */
 if ( config->acc_fs >= IMU_ACC_FS_32G ) {
     /*
@@ -616,7 +692,7 @@ if ( config->acc_fs >= IMU_ACC_FS_32G ) {
                                          LSM6DSV320X_CTRL1_XL_HG,
                                          &ctrl1_xl_hg, 1 );
 
-    /* Force low-G chain to ±16g HP mode. DS14623 Rev3 §6.1.2. */
+    /* Force low-G chain to ±16g. DS14623 Rev3 §6.1.2. */
     pid_status |= lsm6dsv320x_xl_full_scale_set( &imu_ctx, LSM6DSV320X_16g );
 
     /* Enable XL_HG_BATCH_EN in COUNTER_BDR_REG1 (0Bh) bit[5]
@@ -668,41 +744,8 @@ imu_acc_fs  = config->acc_fs;
 imu_gyro_fs = config->gyro_fs;
 
 /*
- * Registers: CTRL1 (10h) OP_MODE_XL[2:0], CTRL2 (11h) OP_MODE_G[2:0].
- *
- * Hardware Constraint (DS14623 Rev3 §6.1.2):
- * When the high-G chain is active, the low-G chain MUST run in high-performance mode.
- *
- * Implementation:
- * Silently override `acc_mode` to abstract this constraint from the caller, 
- * ignoring any contrary value provided in the configuration struct.
- */
-{
-    lsm6dsv320x_xl_mode_t xl_mode;
-    IMU_ACC_MODE effective_acc_mode = ( config->acc_fs >= IMU_ACC_FS_32G )
-                                    ? IMU_ACC_MODE_HP
-                                    : config->acc_mode;
-    switch ( effective_acc_mode ) {
-        case IMU_ACC_MODE_NORMAL: xl_mode = LSM6DSV320X_XL_NORMAL_MD;          break;
-        case IMU_ACC_MODE_LP1:    xl_mode = LSM6DSV320X_XL_LOW_POWER_2_AVG_MD; break;
-        case IMU_ACC_MODE_LP2:    xl_mode = LSM6DSV320X_XL_LOW_POWER_4_AVG_MD; break;
-        case IMU_ACC_MODE_LP3:    xl_mode = LSM6DSV320X_XL_LOW_POWER_8_AVG_MD; break;
-        case IMU_ACC_MODE_HP:     /* fall-through */
-        default:                  xl_mode = LSM6DSV320X_XL_HIGH_PERFORMANCE_MD; break;
-    }
-    pid_status |= lsm6dsv320x_xl_mode_set( &imu_ctx, xl_mode );
-}
-
-pid_status |= lsm6dsv320x_gy_mode_set( &imu_ctx,
-                  (lsm6dsv320x_gy_mode_t)config->gyro_mode );
-
-/*
- * BDU (Block Data Update) and IF_INC (register address auto-increment).
- * BDU=1 prevents reading a stale MSB+new LSB mix during burst reads.
- * IF_INC=1 required for multi-byte register burst reads.
+ * BDU and IF_INC via dedicated PID wrappers (read-modify-write internally).
  * DS14623 Rev3 CTRL3 (12h), Table 59.
- * Both are set via dedicated PID wrappers which perform read-modify-write
- * internally, leaving all other CTRL3 bits at their reset values.
  */
 pid_status |= lsm6dsv320x_block_data_update_set( &imu_ctx, PROPERTY_ENABLE );
 pid_status |= lsm6dsv320x_auto_increment_set( &imu_ctx, PROPERTY_ENABLE );
@@ -730,7 +773,6 @@ if ( config->sflp_enable ) {
 
     if ( pid_status != 0 ) { return IMU_CONFIG_FAIL; }
 
-    /* Flag only after all SFLP steps succeed */
     imu_sflp_enabled = true;
 }
 
@@ -775,8 +817,7 @@ if ( config->fifo_enable ) {
 
     pid_status |= lsm6dsv320x_fifo_gy_batch_set( &imu_ctx, g_bdr );
 
-    /* 1 gyro + 1 accel (either low-G or high-G) */
-    watermark = 2U;
+    watermark = 2U; /* 1 gyro + 1 accel */
 
     /* SFLP adds 3 slots per group: Quat (0x13), Grav (0x17), Gbias (0x16) */
     if ( imu_sflp_enabled ) {
@@ -784,7 +825,7 @@ if ( config->fifo_enable ) {
         sflp_batch.gravity       = 1U;
         sflp_batch.gbias         = 1U;
         pid_status |= lsm6dsv320x_fifo_sflp_batch_set( &imu_ctx, sflp_batch );
-        watermark += 3U;
+        watermark += 3U; /* + Quat, Grav, Gbias */
     }
 
     pid_status |= lsm6dsv320x_fifo_watermark_set( &imu_ctx, watermark );
@@ -811,7 +852,7 @@ return IMU_OK;
   *         batching (XL_HG_BATCH_EN on, low-G batch off). On crossing from
   *         high-G to low-G: clears XL_HG_REGOUT_EN, restores low-G batching,
   *         and restores whichever accel power mode the user last requested
-  *         via imu_init()/imu_set_power_mode() (the §6.1.2 forced-HP
+  *         via imu_init() / imu_set_power_mode() (the §6.1.2 forced-HP
   *         constraint no longer applies once the high-G chain is off).
   *         DS14623 Rev3 §6.1.2, Tables 70, 149, 150; COUNTER_BDR_REG1 (0Bh).
   */
@@ -824,8 +865,7 @@ int32_t    pid_status    = 0;
 bool       current_is_hg = ( imu_acc_fs >= IMU_ACC_FS_32G );
 bool       new_is_hg     = ( new_fs     >= IMU_ACC_FS_32G );
 
-if ( new_is_hg )
-    {
+if ( new_is_hg ) {
     uint8_t hg_odr_code;
     uint8_t hg_fs_code;
     uint8_t ctrl1_xl_hg;
@@ -837,7 +877,10 @@ if ( new_is_hg )
         case IMU_ODR_3840HZ: hg_odr_code = 0x06U; break;
         case IMU_ODR_7680HZ: hg_odr_code = 0x07U; break;
         case IMU_ODR_1920HZ: /* fall-through */
-        default:             hg_odr_code = 0x05U; break;
+        default:
+            IMU_ASSERT( imu_cached_odr == IMU_ODR_1920HZ );
+            hg_odr_code = 0x05U;
+            break;
     }
 
     /* Table 150: FS_XL_HG[2:0] codes */
@@ -858,11 +901,13 @@ if ( new_is_hg )
                                          LSM6DSV320X_CTRL1_XL_HG,
                                          &ctrl1_xl_hg, 1 );
 
-    /* Boundary crossing: low-G to high-G */
+    /* Boundary crossing: low-G -> high-G */
     if ( !current_is_hg ) {
-        /* Force low-G to ±16g HP mode. DS14623 Rev3 §6.1.2. */
+        /* §6.1.2: force low-G to ±16g HP mode.
+           Use xl_setup() to update both FS and mode atomically. */
         pid_status |= lsm6dsv320x_xl_full_scale_set( &imu_ctx, LSM6DSV320X_16g );
-        pid_status |= lsm6dsv320x_xl_mode_set( &imu_ctx,
+        pid_status |= lsm6dsv320x_xl_setup( &imu_ctx,
+                          map_odr( imu_cached_odr ),
                           LSM6DSV320X_XL_HIGH_PERFORMANCE_MD );
 
         if ( imu_cached_fifo_en ) {
@@ -890,7 +935,7 @@ if ( new_is_hg )
     }
     pid_status |= lsm6dsv320x_xl_full_scale_set( &imu_ctx, xl_fs );
 
-    /* Boundary crossing: high-G to low-G */
+    /* Boundary crossing: high-G -> low-G */
     if ( current_is_hg ) {
         uint8_t ctrl1_xl_hg = 0x00U; /* Clear XL_HG_REGOUT_EN and ODR */
         pid_status |= lsm6dsv320x_write_reg( &imu_ctx,
@@ -922,10 +967,10 @@ if ( new_is_hg )
         }
 
         /*
-         * §6.1.2 only forces HP mode while the high-G chain is active. Now
-         * that we've dropped back to the low-G chain, restore whatever
-         * power mode the user actually asked for via imu_init() /
-         * imu_set_power_mode() instead of leaving the sensor stuck in HP.
+         * §6.1.2 only applies while the high-G chain is active. Restore
+         * the user-requested mode via lsm6dsv320x_xl_setup() with the
+         * cached ODR. ODR_UNCHANGED is intentionally not used here since we
+         * always want to reconfirm the cached ODR on the boundary crossing.
          */
         {
             lsm6dsv320x_xl_mode_t restore_mode;
@@ -937,7 +982,8 @@ if ( new_is_hg )
                 case IMU_ACC_MODE_HP:     /* fall-through */
                 default:                  restore_mode = LSM6DSV320X_XL_HIGH_PERFORMANCE_MD; break;
             }
-            pid_status |= lsm6dsv320x_xl_mode_set( &imu_ctx, restore_mode );
+            pid_status |= lsm6dsv320x_xl_setup( &imu_ctx,
+                              map_odr( imu_cached_odr ), restore_mode );
         }
     }
 }
@@ -972,12 +1018,8 @@ return IMU_OK;
 /**
   * @brief  Changes accel and gyro operating mode at runtime (no reset).
   * @note   DS14623 Rev3 §6.1.2: when the high-G chain is active the low-G
-  *         chain must remain in high-performance mode. If high-G is currently
-  *         configured, acc_mode is silently overridden to IMU_ACC_MODE_HP
-  *         regardless of the caller's request. The caller's requested mode
-  *         is still cached (imu_cached_acc_mode) so imu_set_accel_fs() can
-  *         restore it later if/when the high-G chain is deactivated.
-  *         DS14623 Rev3 CTRL1 (10h) Table 53, CTRL2 (11h) Table 56.
+  *         chain must remain in high-performance mode.
+  *         Uses lsm6dsv320x_xl_setup() / lsm6dsv320x_gy_setup() with the cached ODR.
   */
 IMU_STATUS imu_set_power_mode
     (
@@ -989,8 +1031,7 @@ int32_t               pid_status = 0;
 lsm6dsv320x_xl_mode_t xl_mode;
 IMU_ACC_MODE          effective_acc_mode;
 
-/* Remember what the caller actually asked for, independent of any
-   hardware-constraint override below. */
+/* Cache caller's request; used by imu_set_accel_fs() on HG->LG transition */
 imu_cached_acc_mode = acc_mode;
 
 /* Enforce §6.1.2: high-G chain requires low-G in high-performance mode */
@@ -1005,8 +1046,11 @@ switch ( effective_acc_mode ) {
     default:                  xl_mode = LSM6DSV320X_XL_HIGH_PERFORMANCE_MD; break;
 }
 
-pid_status |= lsm6dsv320x_xl_mode_set( &imu_ctx, xl_mode );
-pid_status |= lsm6dsv320x_gy_mode_set( &imu_ctx, (lsm6dsv320x_gy_mode_t)gyro_mode );
+pid_status |= lsm6dsv320x_xl_setup( &imu_ctx,
+                  map_odr( imu_cached_odr ), xl_mode );
+pid_status |= lsm6dsv320x_gy_setup( &imu_ctx,
+                  map_odr( imu_cached_odr ),
+                  (lsm6dsv320x_gy_mode_t)gyro_mode );
 
 return ( pid_status == 0 ) ? IMU_OK : IMU_CONFIG_FAIL;
 } /* imu_set_power_mode */
@@ -1109,8 +1153,8 @@ IMU_STATUS imu_read_sflp_sync
 {
 int32_t                  pid_status;
 lsm6dsv320x_quaternion_t quat        = { 0 };
-int16_t                  grav_raw[3] = { 0 };   
-int16_t                  gbias_raw[3]= { 0 };   
+int16_t                  grav_raw[3] = { 0 };
+int16_t                  gbias_raw[3]= { 0 };
 
 if ( !imu_sflp_enabled ) { return IMU_CONFIG_FAIL; }
 
@@ -1143,18 +1187,9 @@ return IMU_OK;
 
 /**
   * @brief  Manually triggers an SPI DMA burst from the IMU FIFO.
-  * @note   Call from the flight loop after polling imu_has_new_data() or
-  *         after detecting INT1 asserted. Must NOT be called from an ISR:
-  *         lsm6dsv320x_fifo_status_get() issues a blocking SPI read; calling
-  *         it inside the EXTI4 ISR will deadlock if SPI IRQ priority is lower
-  *         than EXTI4. HAL_SPI_TransmitReceive_DMA() launches the transfer and
-  *         returns immediately. CS is held low until imu_process_async_cb()
-  *         de-asserts it.
-  *
-  *         The number of slots to burst is limited to IMU_DMA_BUF_SLOTS to
-  *         prevent overrunning the fixed-size DMA buffers.
-  *         DS14623 Rev3 §9.90 (FIFO_DATA_OUT_TAG 78h).
-  * @retval IMU_OK, IMU_BUSY (DMA already in flight), or IMU_NO_DATA.
+  * @note   Must NOT be called from an ISR. Returns IMU_BUSY when a DMA
+  *         transfer is already in flight - this is a valid non-error
+  *         condition (flight loop called faster than the watermark rate).
   */
 IMU_STATUS imu_request_async
     (
@@ -1167,6 +1202,7 @@ int32_t                   pid_status;
 uint8_t                   slots_to_read;
 uint16_t                  tx_len;
 
+/* IMU_BUSY is a valid runtime return - do NOT assert here */
 if ( imu_dma_busy ) { return IMU_BUSY; }
 
 /* Read FIFO_STATUS1/2: DIFF_FIFO[8:0] gives unread word count.
@@ -1179,6 +1215,13 @@ if ( fifo_status.fifo_level == 0U ) { return IMU_NO_DATA; }
 slots_to_read = ( (uint16_t)fifo_status.fifo_level < (uint16_t)IMU_DMA_BUF_SLOTS )
               ? (uint8_t)fifo_status.fifo_level
               : (uint8_t)IMU_DMA_BUF_SLOTS;
+
+/*
+ * Invariant: clamped slot count must fit within the fixed DMA buffer.
+ * Fires if IMU_DMA_BUF_SLOTS was reduced below fifo_status.fifo_level
+ * without a corresponding buffer resize - a build-time mistake.
+ */
+IMU_ASSERT( slots_to_read <= IMU_DMA_BUF_SLOTS );
 
 imu_dma_slots_requested = slots_to_read;
 
@@ -1332,6 +1375,9 @@ uint8_t  i;
 IMU_RAW       raw_out;
 IMU_SFLP_DATA sflp_out;
 
+/* At least one output must be non-NULL, otherwise the call is a no-op */
+IMU_ASSERT( raw != NULL || sflp != NULL );
+
 if ( !imu_dma_ready ) { return IMU_BUSY; }
 
 /*
@@ -1346,6 +1392,10 @@ primask = __get_PRIMASK();
 __disable_irq();
 
 slots = imu_dma_slots_requested;
+
+/* Invariant: captured slot count must be within the allocated buffer */
+IMU_ASSERT( slots <= IMU_DMA_BUF_SLOTS );
+
 {
     uint16_t valid_len = (uint16_t)( 1U + ( (uint16_t)slots * IMU_FIFO_SLOT_BYTES ) );
     memcpy( dma_snapshot, imu_dma_rx_buf, valid_len );
@@ -1392,6 +1442,9 @@ float   acc_sens;
 float   gyro_sens;
 uint8_t acc_idx;
 uint8_t gy_idx;
+
+IMU_ASSERT( raw  != NULL );
+IMU_ASSERT( data != NULL );
 
 /*
  * Accelerometer sensitivity look-up table [mg/LSB].
@@ -1443,6 +1496,10 @@ switch ( imu_gyro_fs ) {
     default:                  gy_idx = 0U; break;
 }
 
+/* Invariant: indices must be within table bounds */
+IMU_ASSERT( acc_idx < 9U );
+IMU_ASSERT( gy_idx  < 5U );
+
 acc_sens  = acc_sens_mg_lsb[acc_idx]   / 1000.0f; /* mg/LSB  -> g/LSB   */
 gyro_sens = gyro_sens_mdps_lsb[gy_idx] / 1000.0f; /* mdps/LSB -> dps/LSB */
 
@@ -1454,7 +1511,6 @@ data->gyro_y  = (float)raw->gyro_y  * gyro_sens;
 data->gyro_z  = (float)raw->gyro_z  * gyro_sens;
 } /* imu_scale_raw */
 
-#endif /* A0010 */
 /*******************************************************************************
 * END OF FILE                                                                  *
 *******************************************************************************/
