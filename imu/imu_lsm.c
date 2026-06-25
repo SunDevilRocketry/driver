@@ -49,7 +49,7 @@
   */
 
 #if !defined( A0010 )
-#error "imu_lsm.h is only supported on the A0010 hardware"
+#error "imu_lsm.c is only supported on the A0010 hardware"
 #endif
 
 /*------------------------------------------------------------------------------
