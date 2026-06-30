@@ -117,6 +117,13 @@ extern "C" {
  */
 #define IMU_DMA_BUF_SLOTS           ( 16U )
 
+/* 
+ * Verify at compile time that the DMA buffer capacity is large enough
+ * to hold a complete FIFO watermark burst without data truncation.
+ */
+_Static_assert( IMU_DMA_BUF_SLOTS >= IMU_FIFO_WATERMARK,
+                "IMU_DMA_BUF_SLOTS must be >= IMU_FIFO_WATERMARK" );
+
 /** @brief Total DMA rx buffer size in bytes (cmd + slots).                    */
 #define IMU_DMA_BUF_BYTES           ( 1U + ( IMU_DMA_BUF_SLOTS * IMU_FIFO_SLOT_BYTES ) )
 
@@ -149,7 +156,7 @@ extern "C" {
  *        headroom at 480 Hz and ~9.6x at the default 1920 Hz.
  *        DS14623 Rev3 Table 54.
  */
-#define IMU_DRDY_TIMEOUT_MS         ( 5U )
+#define IMU_DRDY_TIMEOUT            ( 5U )
 
 
 /*------------------------------------------------------------------------------
@@ -196,12 +203,12 @@ typedef struct _IMU_SFLP_DATA
  */
 typedef struct _IMU_DATA
     {
-    float accel_x;     /* Accelerometer X [g]   */
-    float accel_y;     /* Accelerometer Y [g]   */
-    float accel_z;     /* Accelerometer Z [g]   */
-    float gyro_x;      /* Gyroscope X [dps]     */
-    float gyro_y;      /* Gyroscope Y [dps]     */
-    float gyro_z;      /* Gyroscope Z [dps]     */
+    float accel_x;     /* Accelerometer X [m/s^2] */
+    float accel_y;     /* Accelerometer Y [m/s^2] */
+    float accel_z;     /* Accelerometer Z [m/s^2] */
+    float gyro_x;      /* Gyroscope X [rad/s]     */
+    float gyro_y;      /* Gyroscope Y [rad/s]     */
+    float gyro_z;      /* Gyroscope Z [rad/s]     */
     } IMU_DATA;
 
 /**
@@ -307,7 +314,7 @@ typedef struct _IMU_CONFIG
 /**
  * @brief Standard status return codes for all IMU driver operations.
  */
-typedef enum _IMU_STATUS
+typedef enum _IMU_LSM_STATUS
     {
     IMU_OK               = 0,   /* Operation completed successfully         */
     IMU_FAIL,                   /* General failure                          */
@@ -318,7 +325,7 @@ typedef enum _IMU_STATUS
     IMU_CONFIG_FAIL,            /* Register configuration step failed       */
     IMU_BUSY,                   /* DMA transfer in progress, data not ready */
     IMU_NO_DATA,                /* FIFO empty or DRDY not set after timeout */
-    } IMU_STATUS;
+    } IMU_LSM_STATUS;
 
 
 /*------------------------------------------------------------------------------
@@ -332,9 +339,9 @@ typedef enum _IMU_STATUS
  * @note   Performs SW reset, applies loop-coupled ODR / FS settings.
  *         Configures the PID facade and sets up Register Bank routing for SFLP.
  * @param  config: Pointer to user configuration struct.
- * @retval IMU_STATUS
+ * @retval IMU_LSM_STATUS
  */
-IMU_STATUS imu_init
+IMU_LSM_STATUS imu_init
     (
     const IMU_CONFIG* config
     );
@@ -346,9 +353,9 @@ IMU_STATUS imu_init
  *         CTRL1_XL_HG / CTRL8, and enforces HP mode constraint (§6.1.2).
  *         No sensor reset required.
  * @param  new_fs: Target full-scale range.
- * @retval IMU_STATUS
+ * @retval IMU_LSM_STATUS
  */
-IMU_STATUS imu_set_accel_fs
+IMU_LSM_STATUS imu_set_accel_fs
     (
     IMU_ACC_FS new_fs
     );
@@ -356,9 +363,9 @@ IMU_STATUS imu_set_accel_fs
 /** 
  * @brief  Mid-flight Gyroscope Full-Scale transition (Runtime).
  * @param  new_fs: Target full-scale range.
- * @retval IMU_STATUS
+ * @retval IMU_LSM_STATUS
  */
-IMU_STATUS imu_set_gyro_fs
+IMU_LSM_STATUS imu_set_gyro_fs
     (
     IMU_GYRO_FS new_fs
     );
@@ -367,9 +374,9 @@ IMU_STATUS imu_set_gyro_fs
  * @brief  Changes accel and gyro operating mode at runtime (no reset).
  * @param  acc_mode:  Target accel power mode.
  * @param  gyro_mode: Target gyro power mode.
- * @retval IMU_STATUS
+ * @retval IMU_LSM_STATUS
  */
-IMU_STATUS imu_set_power_mode
+IMU_LSM_STATUS imu_set_power_mode
     (
     IMU_ACC_MODE  acc_mode,
     IMU_GYRO_MODE gyro_mode
@@ -382,9 +389,9 @@ IMU_STATUS imu_set_power_mode
  * @brief  Polled read of raw Accel + Gyro.
  * @note   Intended for pre-flight BIT and terminal sensor dump.
  * @param  raw: Pointer to raw counts buffer.
- * @retval IMU_STATUS
+ * @retval IMU_LSM_STATUS
  */
-IMU_STATUS imu_read_sync
+IMU_LSM_STATUS imu_read_sync
     (
     IMU_RAW* raw
     );
@@ -393,9 +400,9 @@ IMU_STATUS imu_read_sync
  * @brief  Blocking SFLP/Quaternion retrieval.
  * @note   Handles internal ST bank-switching logic. Used for BIT/Debug.
  * @param  sflp: Pointer to SFLP output struct.
- * @retval IMU_STATUS
+ * @retval IMU_LSM_STATUS
  */
-IMU_STATUS imu_read_sflp_sync
+IMU_LSM_STATUS imu_read_sflp_sync
     (
     IMU_SFLP_DATA* sflp
     );
@@ -407,9 +414,9 @@ IMU_STATUS imu_read_sflp_sync
  * @brief  Triggers an SPI DMA read of the IMU FIFO.
  * @note   Offloads the SPI transfer to meet flight loop timing.
  *         Must be called after INT1 assertions (FIFO watermark).
- * @retval IMU_STATUS: IMU_OK, IMU_BUSY, or IMU_NO_DATA.
+ * @retval IMU_LSM_STATUS: IMU_OK, IMU_BUSY, or IMU_NO_DATA.
  */
-IMU_STATUS imu_request_async
+IMU_LSM_STATUS imu_request_async
     (
     void
     );
@@ -451,9 +458,9 @@ bool imu_has_new_data
  *         math out of interrupt]
  * @param  raw:  Pointer to raw counts buffer (may be NULL).
  * @param  sflp: Pointer to quaternion/fusion buffer (may be NULL).
- * @retval IMU_STATUS: IMU_OK or IMU_BUSY.
+ * @retval IMU_LSM_STATUS: IMU_OK or IMU_BUSY.
  */
-IMU_STATUS imu_get_latest
+IMU_LSM_STATUS imu_get_latest
     (
     IMU_RAW*       raw,
     IMU_SFLP_DATA* sflp

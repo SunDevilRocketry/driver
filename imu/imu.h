@@ -4,10 +4,13 @@
   * @brief          : Unified IMU System Interface
   * @author         : Sun Devil Rocketry Firmware Team
   *
-  * @note  Interface abstracts the
-  *        underlying differences between legacy 9-axis I2C architectures and
-  *        newer 6-axis SPI DMA architectures of IMU files.
+  * @note  Abstracts the underlying differences between legacy 9-axis I2C 
+  *        architectures and newer 6-axis SPI DMA architectures.
   *
+  *        This interface serves as a static contract across all projects. 
+  *        The implementation is swappable: `imu_dflt.c` provides the 
+  *        working default, but individual projects can supply a custom 
+  *        source file to manage specific power-mode and full-scale scheduling.
   ******************************************************************************
   * @attention
   * Copyright (c) 2026 Sun Devil Rocketry. All rights reserved.

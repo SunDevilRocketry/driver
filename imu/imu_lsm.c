@@ -20,16 +20,17 @@
   *          2. HAL_SPI_TransmitReceive_DMA() starts non-blocking burst read.
   *          3. HAL_SPI_TxRxCpltCallback() calls imu_process_async_cb() inside ISR.
   *          4. imu_process_async_cb() de-asserts CS, invalidates D-Cache, sets imu_dma_ready.
-  *          5. Flight loop calls imu_get_latest() to copy buffer in critical section.
+  *          5. Flight loop calls imu_get_latest() to snapshot the ready buffer.
   *          6. FIFO parsing is deferred to thread context to avoid FPU execution in ISR.
   *          7. On transaction failure, HAL_SPI_ErrorCallback() routes to imu_process_async_error_cb().
   *        
   *        D-Cache coherency (STM32H7):
-  *          imu_dma_rx_buf is __ALIGNED(32) and sized to a multiple of 32 bytes
+  *          imu_dma_rx_buf is double-buffered (2 rows); each row is
+  *          __ALIGNED(32) and sized to a multiple of 32 bytes
   *          (IMU_DMA_BUF_BYTES_ALIGNED). SCB_InvalidateDCache_by_Addr() in
-  *          imu_process_async_cb() touches only those lines. Place these buffers
-  *          in a non-cacheable MPU region OR rely on the explicit invalidation
-  *          here (Don't do both).
+  *          imu_process_async_cb() touches only the row that was just filled.
+  *          Place these buffers in a non-cacheable MPU region OR rely on the
+  *          explicit invalidation here (Don't do both).
 
   *          NOTE: these buffers must also live in DMA-accessible RAM (e.g. an
   *          AXI/D2 SRAM section) since DTCM not reachable by DMA1/DMA2.
@@ -57,6 +58,7 @@
 ------------------------------------------------------------------------------*/
 #include <string.h>
 #include <math.h>
+#include <stdatomic.h>
 
 
 /*------------------------------------------------------------------------------
@@ -131,24 +133,41 @@ static IMU_ACC_MODE imu_cached_acc_mode;
  *        - Section (.dma_buffer): Forces placement in RAM_D2 (0x30000000).
  *          DTCM (.bss) is not reachable by the DMA1/DMA2 controllers.
  *
+ *        imu_dma_rx_buf is double-buffered. imu_request_async()
+ *        always launches a transfer into the buffer NOT currently marked
+ *        ready/unconsumed, and is gated by imu_dma_busy so a new transfer can 
+ *        only start after the previous one's ISR has fully published its ready_idx. 
+ *
  *        Linker requirements:
  *          .dma_buffer (NOLOAD) : { . = ALIGN(32); *(.dma_buffer); } >RAM_D2
  */
 __ALIGNED(32) __attribute__((section(".dma_buffer")))
 static uint8_t imu_dma_tx_buf[ IMU_DMA_BUF_BYTES_ALIGNED ];
 __ALIGNED(32) __attribute__((section(".dma_buffer")))
-static uint8_t imu_dma_rx_buf[ IMU_DMA_BUF_BYTES_ALIGNED ];
+static uint8_t imu_dma_rx_buf[ 2 ][ IMU_DMA_BUF_BYTES_ALIGNED ];
 
-/** @brief Number of FIFO slots captured in the most recent DMA transaction    */
-static volatile uint8_t imu_dma_slots_requested;
+/** @brief Number of FIFO slots captured per rx buffer (indexed by buffer)    */
+static uint8_t imu_dma_slots[ 2 ];
+
+/**
+ * @brief Index (0 or 1) of the imu_dma_rx_buf row currently targeted by an
+ *        in-flight (or about-to-launch) DMA transfer.
+ */
+static uint8_t imu_dma_fill_idx = 0U;
+
+/**
+ * @brief Index of the imu_dma_rx_buf row holding the most recently completed,
+ *        not-yet consumed transfer. 
+ */
+static atomic_uchar imu_dma_ready_idx = 0U;
 
 /**
  * @brief Synchronization flags.
- *        volatile: both are written in interrupt context (imu_process_async_cb)
- *        and read from task/loop context.
+ *        atomic_bool: both are written in interrupt context
+ *        (imu_process_async_cb) and read from task/loop context. 
  */
-static volatile bool imu_dma_busy  = false;
-static volatile bool imu_dma_ready = false;
+static atomic_bool imu_dma_busy  = false;
+static atomic_bool imu_dma_ready = false;
 
 
 /*------------------------------------------------------------------------------
@@ -186,8 +205,10 @@ switch ( odr ) {
     case IMU_ODR_960HZ:  return LSM6DSV320X_ODR_AT_960Hz;
     case IMU_ODR_3840HZ: return LSM6DSV320X_ODR_AT_3840Hz;
     case IMU_ODR_7680HZ: return LSM6DSV320X_ODR_AT_7680Hz;
-    case IMU_ODR_1920HZ:
-    default:             return LSM6DSV320X_ODR_AT_1920Hz;
+    case IMU_ODR_1920HZ: return LSM6DSV320X_ODR_AT_1920Hz;
+    default:
+        IMU_ASSERT( odr == IMU_ODR_1920HZ );
+        return LSM6DSV320X_ODR_AT_1920Hz;
 }
 } /* map_odr */
 
@@ -324,7 +345,7 @@ HAL_Delay( ms );
   *         If numerical noise causes |xyz|² > 1, XYZ is normalised first so
   *         the output remains a valid unit quaternion.
   *         Uses lsm6dsv320x_from_quaternion_lsb_to_float() 
-  * @param  quat:  Output [x, y, z, w] indexed [0..3].
+  * @param  quat:  Output [w, x, y, z] indexed [0..3].
   * @param  sflp:  Three raw half-float values from the FIFO slot.
   */
 static void sflp2q
@@ -335,23 +356,27 @@ static void sflp2q
 {
 float   sumsq;
 uint8_t i;
+float   xyz[3];
 
-quat[0] = lsm6dsv320x_from_quaternion_lsb_to_float( sflp[0] ); /* x */
-quat[1] = lsm6dsv320x_from_quaternion_lsb_to_float( sflp[1] ); /* y */
-quat[2] = lsm6dsv320x_from_quaternion_lsb_to_float( sflp[2] ); /* z */
+xyz[0] = lsm6dsv320x_from_quaternion_lsb_to_float( sflp[0] ); /* x */
+xyz[1] = lsm6dsv320x_from_quaternion_lsb_to_float( sflp[1] ); /* y */
+xyz[2] = lsm6dsv320x_from_quaternion_lsb_to_float( sflp[2] ); /* z */
 
-sumsq = quat[0] * quat[0] + quat[1] * quat[1] + quat[2] * quat[2];
+sumsq = xyz[0] * xyz[0] + xyz[1] * xyz[1] + xyz[2] * xyz[2];
 
 if ( sumsq > 1.0f ) {
     /* Normalise xyz so W stays real */
     float n = sqrtf( sumsq );
     for ( i = 0U; i < 3U; i++ ) {
-        quat[i] /= n;
+        xyz[i] /= n;
     }
     sumsq = 1.0f;
 }
 
-quat[3] = sqrtf( 1.0f - sumsq ); /* w */
+quat[0] = sqrtf( 1.0f - sumsq ); /* w */
+quat[1] = xyz[0];                /* x */
+quat[2] = xyz[1];                /* y */
+quat[3] = xyz[2];                /* z */
 } /* sflp2q */
 
 
@@ -433,10 +458,10 @@ switch ( tag ) {
             uint16_t sflp_raw[3] = { x_raw, y_raw, z_raw };
             float quat[4];
             sflp2q( quat, sflp_raw );
-            sflp_ptr->quat_x = quat[0];
-            sflp_ptr->quat_y = quat[1];
-            sflp_ptr->quat_z = quat[2];
-            sflp_ptr->quat_w = quat[3];
+            sflp_ptr->quat_w = quat[0];
+            sflp_ptr->quat_x = quat[1];
+            sflp_ptr->quat_y = quat[2];
+            sflp_ptr->quat_z = quat[3];
         }
         break;
 
@@ -457,7 +482,12 @@ switch ( tag ) {
         break;
 
     default:
-        /* Unknown or unhandled tag - silently skip */
+        /*
+         * Unhandled tag. Continuous-mode FIFO may emit tags this driver 
+         * does not consume (such as timestamps).
+         * Flagged for debug visibility.
+         */
+        IMU_ASSERT( false );
         break;
     }
 } /* parse_fifo_slot */
@@ -491,9 +521,9 @@ switch ( tag ) {
   *        it from the flight loop.
   *
   * @param  config: Pointer to user configuration struct (non-NULL).
-  * @retval IMU_STATUS
+  * @retval IMU_LSM_STATUS
   */
-IMU_STATUS imu_init
+IMU_LSM_STATUS imu_init
     (
     const IMU_CONFIG* config
     )
@@ -725,19 +755,18 @@ if ( config->acc_fs >= IMU_ACC_FS_32G ) {
     pid_status |= lsm6dsv320x_xl_full_scale_set( &imu_ctx, xl_fs );
 }
 
-/* Gyro FS: map IMU_GYRO_FS to lsm6dsv320x_gy_full_scale_t. DS14623 Table 65. */
-{
-    lsm6dsv320x_gy_full_scale_t gy_fs;
-    switch ( config->gyro_fs ) {
-        case IMU_GYRO_FS_500DPS:  gy_fs = LSM6DSV320X_500dps;  break;
-        case IMU_GYRO_FS_1000DPS: gy_fs = LSM6DSV320X_1000dps; break;
-        case IMU_GYRO_FS_2000DPS: gy_fs = LSM6DSV320X_2000dps; break;
-        case IMU_GYRO_FS_4000DPS: gy_fs = LSM6DSV320X_4000dps; break;
-        case IMU_GYRO_FS_250DPS:  /* fall-through */
-        default:                  gy_fs = LSM6DSV320X_250dps;  break;
-    }
-    pid_status |= lsm6dsv320x_gy_full_scale_set( &imu_ctx, gy_fs );
+/* Gyro FS: map IMU_GYRO_FS to lsm6dsv320x_gy_full_scale_t. DS14623 Table 65.
+   (Not a condition - just a local scope for gy_fs.) */
+lsm6dsv320x_gy_full_scale_t gy_fs;
+switch ( config->gyro_fs ) {
+    case IMU_GYRO_FS_500DPS:  gy_fs = LSM6DSV320X_500dps;  break;
+    case IMU_GYRO_FS_1000DPS: gy_fs = LSM6DSV320X_1000dps; break;
+    case IMU_GYRO_FS_2000DPS: gy_fs = LSM6DSV320X_2000dps; break;
+    case IMU_GYRO_FS_4000DPS: gy_fs = LSM6DSV320X_4000dps; break;
+    case IMU_GYRO_FS_250DPS:  /* fall-through */
+    default:                  gy_fs = LSM6DSV320X_250dps;  break;
 }
+pid_status |= lsm6dsv320x_gy_full_scale_set( &imu_ctx, gy_fs );
 
 /* Cache FS for imu_scale_raw() sensitivity lookup */
 imu_acc_fs  = config->acc_fs;
@@ -856,7 +885,7 @@ return IMU_OK;
   *         constraint no longer applies once the high-G chain is off).
   *         DS14623 Rev3 §6.1.2, Tables 70, 149, 150; COUNTER_BDR_REG1 (0Bh).
   */
-IMU_STATUS imu_set_accel_fs
+IMU_LSM_STATUS imu_set_accel_fs
     (
     IMU_ACC_FS new_fs
     )
@@ -999,7 +1028,7 @@ return IMU_OK;
   * @brief  Mid-flight Gyroscope Full-Scale transition (Runtime).
   * @note   DS14623 Rev3 CTRL6 (15h) Table 65.
   */
-IMU_STATUS imu_set_gyro_fs
+IMU_LSM_STATUS imu_set_gyro_fs
     (
     IMU_GYRO_FS new_fs
     )
@@ -1021,7 +1050,7 @@ return IMU_OK;
   *         chain must remain in high-performance mode.
   *         Uses lsm6dsv320x_xl_setup() / lsm6dsv320x_gy_setup() with the cached ODR.
   */
-IMU_STATUS imu_set_power_mode
+IMU_LSM_STATUS imu_set_power_mode
     (
     IMU_ACC_MODE  acc_mode,
     IMU_GYRO_MODE gyro_mode
@@ -1063,12 +1092,12 @@ return ( pid_status == 0 ) ? IMU_OK : IMU_CONFIG_FAIL;
   *           Bit 1 (GDA):    Gyro new data ready.
   *           Bit 0 (XLDA):   Low-G accel new data ready.
   *           Bit 3 (XLHGDA): High-G accel new data ready.
-  *         Timeout = IMU_DRDY_TIMEOUT_MS (5 ms), giving ≥2.4x headroom at
+  *         Timeout = IMU_DRDY_TIMEOUT (5 ms), giving ≥2.4x headroom at
   *         the slowest ODR (480 Hz, period = 2.083 ms).
   *         High-G output data at UI_OUTX_L_A_OIS_HG (34h–39h). DS14623 §9.39.
   *         Intended for pre-flight BIT and terminal sensor dump.
   */
-IMU_STATUS imu_read_sync
+IMU_LSM_STATUS imu_read_sync
     (
     IMU_RAW* raw
     )
@@ -1096,7 +1125,7 @@ do {
     }
 
     if ( accel_ready && gyro_ready ) { break; }
-} while ( ( HAL_GetTick() - tick_start ) < IMU_DRDY_TIMEOUT_MS );
+} while ( ( HAL_GetTick() - tick_start ) < IMU_DRDY_TIMEOUT );
 
 if ( !accel_ready || !gyro_ready ) {
     return IMU_TIMEOUT;
@@ -1146,7 +1175,7 @@ return IMU_OK;
   *           lsm6dsv320x_sflp_gravity_raw_get() -> int16_t[3] in mg LSBs
   *           lsm6dsv320x_sflp_gbias_raw_get()   -> int16_t[3] in mdps LSBs
   */
-IMU_STATUS imu_read_sflp_sync
+IMU_LSM_STATUS imu_read_sflp_sync
     (
     IMU_SFLP_DATA* sflp
     )
@@ -1191,7 +1220,7 @@ return IMU_OK;
   *         transfer is already in flight - this is a valid non-error
   *         condition (flight loop called faster than the watermark rate).
   */
-IMU_STATUS imu_request_async
+IMU_LSM_STATUS imu_request_async
     (
     void
     )
@@ -1211,19 +1240,24 @@ pid_status = lsm6dsv320x_fifo_status_get( &imu_ctx, &fifo_status );
 if ( pid_status != 0 )              { return IMU_ERROR;   }
 if ( fifo_status.fifo_level == 0U ) { return IMU_NO_DATA; }
 
-/* Clamp to the fixed DMA buffer capacity */
+/*
+ * Clamp to the fixed DMA buffer capacity. Note: slots_to_read can never
+ * exceed IMU_DMA_BUF_SLOTS after this clamp by construction, so there is
+ * no runtime invariant left to assert here. The real build-time
+ * relationship (IMU_DMA_BUF_SLOTS sized large enough for IMU_FIFO_WATERMARK)
+ * is enforced once, at compile time, via the _Static_assert near
+ * IMU_DMA_BUF_SLOTS's definition in imu_lsm.h.
+ */
 slots_to_read = ( (uint16_t)fifo_status.fifo_level < (uint16_t)IMU_DMA_BUF_SLOTS )
               ? (uint8_t)fifo_status.fifo_level
               : (uint8_t)IMU_DMA_BUF_SLOTS;
 
 /*
- * Invariant: clamped slot count must fit within the fixed DMA buffer.
- * Fires if IMU_DMA_BUF_SLOTS was reduced below fifo_status.fifo_level
- * without a corresponding buffer resize - a build-time mistake.
+ * Clamp the FIFO read request to the maximum DMA buffer capacity.
+ * (The build-time buffer capacity is guarded via static assertion in imu_lsm.h).
  */
-IMU_ASSERT( slots_to_read <= IMU_DMA_BUF_SLOTS );
-
-imu_dma_slots_requested = slots_to_read;
+imu_dma_fill_idx ^= 1U;
+imu_dma_slots[ imu_dma_fill_idx ] = slots_to_read;
 
 /* Build TX buffer: address byte (RW=1, FIFO_DATA_OUT_TAG) + dummy bytes
    for the data clock-in cycles. FIFO_DATA_OUT_TAG = 0x78 -> read = 0xF8. */
@@ -1234,22 +1268,14 @@ imu_dma_tx_buf[0] = (uint8_t)( LSM6DSV320X_FIFO_DATA_OUT_TAG | IMU_SPI_READ_BIT 
 imu_dma_ready = false;
 imu_dma_busy  = true;
 
-/*
- * D-Cache coherency for DMA buffers (Cortex-M7 write-back cache):
- *
- * TX: The CPU wrote the command byte to imu_dma_tx_buf. In write-back mode,
- *     those writes sit in cache; the DMA peripheral fetches from SRAM directly
- *     and would see stale data. SCB_CleanDCache_by_Addr() flushes the cache
- *     lines to SRAM so the DMA reads the correct command.
- *
- * RX: Invalidate imu_dma_rx_buf so the CPU cannot read speculative prefetch
- *     data captured before the DMA writes arrive. The post-transfer
- *     invalidation in imu_process_async_cb() handles any lines the CPU
- *     fetches speculatively during the transfer.
+/* 
+ * Maintain Cortex-M7 D-Cache coherency for DMA buffers:
+ *   TX: Clean (flush) the TX buffer so the DMA peripheral reads the written SPI command.
+ *   RX: Invalidate the active RX buffer to discard any stale/speculatively prefetched data.
  */
 SCB_CleanDCache_by_Addr( (uint32_t*)imu_dma_tx_buf,
                           (int32_t)IMU_DMA_BUF_BYTES_ALIGNED );
-SCB_InvalidateDCache_by_Addr( (uint32_t*)imu_dma_rx_buf,
+SCB_InvalidateDCache_by_Addr( (uint32_t*)imu_dma_rx_buf[ imu_dma_fill_idx ],
                                (int32_t)IMU_DMA_BUF_BYTES_ALIGNED );
 
 /* Assert CS and launch DMA - CS de-asserted in imu_process_async_cb() */
@@ -1257,7 +1283,7 @@ HAL_GPIO_WritePin( IMU_NSS_GPIO_PORT, IMU_NSS_PIN, GPIO_PIN_RESET );
 __NOP(); __NOP();
 hal_status = HAL_SPI_TransmitReceive_DMA( &IMU_SPI,
                                           imu_dma_tx_buf,
-                                          imu_dma_rx_buf,
+                                          imu_dma_rx_buf[ imu_dma_fill_idx ],
                                           tx_len );
 
 if ( hal_status != HAL_OK ) {
@@ -1280,8 +1306,11 @@ return IMU_OK;
   *         Steps performed here:
   *           1. De-assert CS (held since imu_request_async()).
   *           2. SCB_InvalidateDCache_by_Addr() - evicts stale H7 D-Cache lines
-  *              covering imu_dma_rx_buf so the CPU reads DMA-written data.
-  *           3. Snapshot imu_dma_slots_requested into imu_dma_slots_captured.
+  *              covering the just-filled imu_dma_rx_buf row so the CPU reads
+  *              DMA-written data.
+  *           3. Publish imu_dma_fill_idx into imu_dma_ready_idx - this MUST
+  *              happen before imu_dma_ready is set, so a consumer that
+  *              observes ready == true always sees the matching index.
   *           4. Set imu_dma_ready = true for the flight loop to consume.
   *
   *         Parsing (lsm6dsv320x_from_quaternion_lsb_to_float / sflp2q / sqrtf) is intentionally deferred
@@ -1299,10 +1328,12 @@ HAL_GPIO_WritePin( IMU_NSS_GPIO_PORT, IMU_NSS_PIN, GPIO_PIN_SET );
 
 if ( !imu_dma_busy ) { return; }
 
-/* Invalidate D-Cache lines covering the DMA receive buffer */
-SCB_InvalidateDCache_by_Addr( (uint32_t*)imu_dma_rx_buf,
+/* Invalidate D-Cache lines covering the row that was just DMA'd into */
+SCB_InvalidateDCache_by_Addr( (uint32_t*)imu_dma_rx_buf[ imu_dma_fill_idx ],
                                (int32_t)IMU_DMA_BUF_BYTES_ALIGNED );
 
+/* Publish the ready index before setting the ready flag to prevent race conditions */
+imu_dma_ready_idx = imu_dma_fill_idx;
 imu_dma_busy  = false;
 imu_dma_ready = true;
 } /* imu_process_async_cb */
@@ -1352,24 +1383,23 @@ return imu_dma_ready;
 
 
 /**
-  * @brief  Thread-safe consumer - retrieves the latest DMA-parsed samples.
-  * @note   Parsing (lsm6dsv320x_from_quaternion_lsb_to_float / sflp2q / sqrtf) is performed here
-  *         in thread context rather than in the DMA ISR.
-  *         This section covers only the memcpy of the raw DMA
-  *         buffer and the slot count - the FPU-heavy parse runs outside it.
-  *         Either pointer may be NULL if the caller only needs one dataset.
+  * @brief  Consumer - retrieves the latest DMA-parsed samples.
+  * @note   Performs raw-to-float parsing in thread context to minimize ISR latency.
+  *         Double-buffering guarantees the DMA write path never intersects with this 
+  *         read path. A local memcpy snapshot is taken to safely isolate the dataset 
+  *         before parsing. Either pointer may be NULL if the caller only needs one dataset.
   * @param  raw:  Pointer to destination raw counts buffer  (may be NULL).
   * @param  sflp: Pointer to destination SFLP fusion buffer (may be NULL).
   * @retval IMU_OK on success, IMU_BUSY if no completed burst is available.
   */
-IMU_STATUS imu_get_latest
+IMU_LSM_STATUS imu_get_latest
     (
     IMU_RAW*       raw,
     IMU_SFLP_DATA* sflp
     )
 {
-uint32_t primask;
 uint8_t  dma_snapshot[ IMU_DMA_BUF_BYTES_ALIGNED ];
+uint8_t  idx;
 uint8_t  slots;
 uint8_t  i;
 IMU_RAW       raw_out;
@@ -1381,28 +1411,21 @@ IMU_ASSERT( raw != NULL || sflp != NULL );
 if ( !imu_dma_ready ) { return IMU_BUSY; }
 
 /*
- * Critical section: snapshot the slot count, derive exactly how many bytes
- * this DMA transaction actually populated (1 cmd byte + slots*7), copy only
- * that range, then clear the ready flag. The slot count MUST be captured
- * before it's used to size the copy (to avoid garbage/wrapping)
- * memcpy protection req. + the parse runs outside the critical
- * section so FPU operations do not block other interrupts.
+ * Retrieve the active row index. The double-buffering scheme and the DMA 
+ * busy-gate guarantee the DMA controller will not overwrite this row 
+ * while copying it.
  */
-primask = __get_PRIMASK();
-__disable_irq();
-
-slots = imu_dma_slots_requested;
+idx   = imu_dma_ready_idx;
+slots = imu_dma_slots[ idx ];
 
 /* Invariant: captured slot count must be within the allocated buffer */
 IMU_ASSERT( slots <= IMU_DMA_BUF_SLOTS );
 
 {
     uint16_t valid_len = (uint16_t)( 1U + ( (uint16_t)slots * IMU_FIFO_SLOT_BYTES ) );
-    memcpy( dma_snapshot, imu_dma_rx_buf, valid_len );
+    memcpy( dma_snapshot, imu_dma_rx_buf[ idx ], valid_len );
 }
 imu_dma_ready = false;
-
-__set_PRIMASK( primask );
 
 /* Parse in thread context - safe for FPU, sqrtf, and variable latency */
 memset( &raw_out,  0, sizeof( raw_out  ) );
@@ -1428,7 +1451,7 @@ return IMU_OK;
   *         High-G chain (±32..320 g): LA_So in mg/LSB (separate sensing chain).
   *         A switch-based index lookup is used because the high-G FS enum
   *         values are not contiguous with the low-G ones in the PID enum space.
-  *         Output: accel in [g], gyro in [dps].
+  *         Output: accel in [m/s^2], gyro in [rad/s] 
   * @param  raw:  Source raw counts (non-NULL).
   * @param  data: Destination scaled physical data (non-NULL).
   */
@@ -1442,6 +1465,11 @@ float   acc_sens;
 float   gyro_sens;
 uint8_t acc_idx;
 uint8_t gy_idx;
+
+/** @brief Standard gravity, used to convert g -> m/s^2 (SI). */
+#define IMU_STANDARD_GRAVITY        ( 9.80665f )
+/** @brief deg -> rad conversion factor, used to convert dps -> rad/s (SI). */
+#define IMU_DEG_TO_RAD              ( 0.017453293f )
 
 IMU_ASSERT( raw  != NULL );
 IMU_ASSERT( data != NULL );
@@ -1500,8 +1528,10 @@ switch ( imu_gyro_fs ) {
 IMU_ASSERT( acc_idx < 9U );
 IMU_ASSERT( gy_idx  < 5U );
 
-acc_sens  = acc_sens_mg_lsb[acc_idx]   / 1000.0f; /* mg/LSB  -> g/LSB   */
-gyro_sens = gyro_sens_mdps_lsb[gy_idx] / 1000.0f; /* mdps/LSB -> dps/LSB */
+/* mg/LSB -> g/LSB -> (SI) m/s^2/LSB   */
+acc_sens  = ( acc_sens_mg_lsb[acc_idx]   / 1000.0f ) * IMU_STANDARD_GRAVITY;
+/* mdps/LSB -> dps/LSB -> (SI) rad/s/LSB */
+gyro_sens = ( gyro_sens_mdps_lsb[gy_idx] / 1000.0f ) * IMU_DEG_TO_RAD;
 
 data->accel_x = (float)raw->accel_x * acc_sens;
 data->accel_y = (float)raw->accel_y * acc_sens;
@@ -1509,6 +1539,9 @@ data->accel_z = (float)raw->accel_z * acc_sens;
 data->gyro_x  = (float)raw->gyro_x  * gyro_sens;
 data->gyro_y  = (float)raw->gyro_y  * gyro_sens;
 data->gyro_z  = (float)raw->gyro_z  * gyro_sens;
+
+#undef IMU_STANDARD_GRAVITY
+#undef IMU_DEG_TO_RAD
 } /* imu_scale_raw */
 
 /*******************************************************************************
