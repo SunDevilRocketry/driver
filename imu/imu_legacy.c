@@ -418,8 +418,8 @@ if ( imu_status != IMU_OK )
 /* Combine high byte and low byte to 16 bit data  */
 #if   defined( A0002_REV1 )
     gyro_x_raw = ( (uint16_t) regGyro[0] ) << 8 | regGyro[1];
-    gyro_y_raw = ( (uint16_t) regGyro[0] ) << 8 | regGyro[1];
-    gyro_z_raw = ( (uint16_t) regGyro[0] ) << 8 | regGyro[1];
+    gyro_y_raw = ( (uint16_t) regGyro[2] ) << 8 | regGyro[3];
+    gyro_z_raw = ( (uint16_t) regGyro[4] ) << 8 | regGyro[5];
 #elif defined( A0002_REV2 )
     gyro_x_raw = (int16_t) ( (uint16_t) regGyro[1] << 8 | regGyro[0] );
     gyro_y_raw = (int16_t) ( (uint16_t) regGyro[3] << 8 | regGyro[2] );
