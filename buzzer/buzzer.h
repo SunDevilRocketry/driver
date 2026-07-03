@@ -62,7 +62,7 @@ BUZZ_STATUS buzzer_beep
 	uint32_t duration /* Length of beep in milliseconds */
 	);
 
-/* Beep the flight computer buzzer a specified number of times (blocking) */
+/* Beep the flight computer buzzer a specified number of times (nonblocking) */
 BUZZ_STATUS buzzer_multi_beeps
 	(
 	uint32_t beep_duration, 		/* Length of beep in milliseconds */
@@ -70,11 +70,6 @@ BUZZ_STATUS buzzer_multi_beeps
 	uint8_t	 num_beeps 				/* How many times to repeat */
 	);
 
-/* Beep the flight computer buzzer specified number of times */
-BUZZ_STATUS buzzer_num_beeps
-	(
-	uint8_t num_beeps /* Number of beeps */
-	);
 
 #ifdef __cplusplus
 }
