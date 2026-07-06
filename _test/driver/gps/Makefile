@@ -17,7 +17,7 @@ TARGET = test_gps.out
 ################################################################
 
 # Debug build?
-DEBUG = 1
+DEBUG ?= 0
 # Optimization
 OPT   = -Og
 
@@ -107,6 +107,13 @@ CFLAGS += -Wno-unused-variable
 # Get coverage report
 CFLAGS += -ftest-coverage
 CFLAGS += -fprofile-arcs
+CFLAGS += -ffile-prefix-map=$(shell pwd)/=
+
+ifeq ($(DEBUG), 1)
+CFLAGS += -DDEBUG
+else
+CFLAGS += -DRELBLD
+endif
 
 ################################################################
 # Build all
@@ -138,7 +145,8 @@ test:
 	mkdir -p coverage
 	gcovr $(BUILD_DIR) \
 		--filter $(abspath $(COV_C_SOURCES)) \
-		--html-details coverage/coverage.html
+		--html-details coverage/coverage.html  \
+		--json coverage/coverage.json
 
 ################################################################
 # clean up 
