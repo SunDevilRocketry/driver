@@ -23,6 +23,7 @@ Project Includes
 ------------------------------------------------------------------------------*/
 #include "sdrtf_pub.h"
 #include "main.h"
+#include "sensor.h"
 #include "gps.h"
 
 

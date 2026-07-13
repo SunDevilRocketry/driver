@@ -23,9 +23,10 @@
   ******************************************************************************
   */
 
-#if !defined( A0002_REV2 )
-#error "imu_legacy.c is only supported on the A0002_REV2 hardware platform"
+#if defined( A0002_REV1 )
+    #error "A0002_REV1 support has been removed."
 #endif
+
 
 /*------------------------------------------------------------------------------
  Standard Includes                                                              

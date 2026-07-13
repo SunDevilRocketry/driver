@@ -27,11 +27,11 @@
 #define IMU_LEGACY_H
 
 #if defined( A0010 )
-#error "imu_legacy.h is not supported on the A0010 hardware platform"
+    #error "imu_legacy.h is not supported on the A0010 hardware platform"
 #endif
 
-#if !defined( A0002_REV2 )
-#error "imu_legacy.h is only supported on the A0002_REV2 hardware platform"
+#if defined( A0002_REV1 )
+    #error "A0002_REV1 support has been removed."
 #endif
 
 #include <stdbool.h>
