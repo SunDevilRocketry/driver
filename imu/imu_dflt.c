@@ -11,7 +11,7 @@
   *
   *        Unit Translation: Converts backend-specific native units (such as 
   *        the SI units reported by imu_lsm.c) into the unified contract units 
-  *        of IMU_FlightData (accelerometer in [g], gyroscope in [dps]).
+  *        of IMU_FlightData (accelerometer in [m/s^2], gyroscope in [dps]).
   *
   ******************************************************************************
   * @attention
@@ -27,9 +27,6 @@
 #if defined( A0010 )
 
     #include "imu_lsm.h"
-
-    #define IMU_STANDARD_GRAVITY    ( 9.80665f )
-    #define IMU_RAD_TO_DEG          ( 57.29577951f )
 
     IMU_SYS_STATUS imu_system_init(void)
     {
@@ -65,15 +62,14 @@
         IMU_DATA physical;
         imu_scale_raw(&raw, &physical);
 
-        /* imu_lsm.c reports SI (m/s^2, rad/s) internally; convert to the
-           unified contract's [g] / [dps] here. */
-        out->accel[0] = physical.accel_x / IMU_STANDARD_GRAVITY;
-        out->accel[1] = physical.accel_y / IMU_STANDARD_GRAVITY;
-        out->accel[2] = physical.accel_z / IMU_STANDARD_GRAVITY;
+        /* imu_lsm.c reports accel in m/s^2 & gyro in dps */
+        out->accel[0] = physical.accel_x;
+        out->accel[1] = physical.accel_y;
+        out->accel[2] = physical.accel_z;
 
-        out->gyro[0]  = physical.gyro_x * IMU_RAD_TO_DEG;
-        out->gyro[1]  = physical.gyro_y * IMU_RAD_TO_DEG;
-        out->gyro[2]  = physical.gyro_z * IMU_RAD_TO_DEG;
+        out->gyro[0]  = physical.gyro_x;
+        out->gyro[1]  = physical.gyro_y;
+        out->gyro[2]  = physical.gyro_z;
 
         out->quaternion[0] = sflp.quat_w;
         out->quaternion[1] = sflp.quat_x;
@@ -85,9 +81,6 @@
 
         return IMU_SYS_OK;
     }
-
-    #undef IMU_STANDARD_GRAVITY
-    #undef IMU_RAD_TO_DEG
 
    /* -------------------------------------------------------------------
        Example DMA Completion / Error Callbacks (Reference Only)
@@ -119,9 +112,10 @@
 #else /* Legacy Target */
 
     #include "imu_legacy.h"
+    #include "math_sdr.h"
 
-    #define LEGACY_ACCEL_SCALE   (16.0f / 32768.0f)
-    #define LEGACY_GYRO_SCALE    (2000.0f / 32768.0f)
+    #define LEGACY_ACCEL_SCALE   (16.0f / 32768.0f)   /* raw -> g   */
+    #define LEGACY_GYRO_SCALE    (2000.0f / 32768.0f) /* raw -> dps */
 
     IMU_SYS_STATUS imu_system_init(void)
     {
@@ -162,9 +156,11 @@
             return IMU_SYS_FAIL;
         }
 
-        out->accel[0] = (float)raw.accel_x * LEGACY_ACCEL_SCALE;
-        out->accel[1] = (float)raw.accel_y * LEGACY_ACCEL_SCALE;
-        out->accel[2] = (float)raw.accel_z * LEGACY_ACCEL_SCALE;
+        /* Legacy driver reports accel in [g] - scale up to the unified
+           contract's SI [m/s^2]. Gyro is already [dps] */
+        out->accel[0] = (float)raw.accel_x * LEGACY_ACCEL_SCALE * GRAVITY;
+        out->accel[1] = (float)raw.accel_y * LEGACY_ACCEL_SCALE * GRAVITY;
+        out->accel[2] = (float)raw.accel_z * LEGACY_ACCEL_SCALE * GRAVITY;
 
         out->gyro[0]  = (float)raw.gyro_x * LEGACY_GYRO_SCALE;
         out->gyro[1]  = (float)raw.gyro_y * LEGACY_GYRO_SCALE;

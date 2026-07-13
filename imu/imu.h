@@ -31,8 +31,8 @@
 #endif
 
 typedef struct {
-    float accel[3];         /* g                                   */
-    float gyro[3];          /* dps                                 */
+    float accel[3];         /* m/s^2 (SI)                           */
+    float gyro[3];          /* dps                                  */
     float quaternion[4];    /* [w, x, y, z], unit quat              */
     bool  quaternion_valid; /* false on legacy until AHRS warms up  */
     bool  is_valid;

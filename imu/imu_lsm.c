@@ -74,6 +74,7 @@
 #include "imu_lsm.h"
 #include "error_sdr.h"   /* ERROR_CODE enums */
 #include "debug_sdr.h"   /* debug_assert() - mod/debug_sdr/debug_sdr.h */
+#include "math_sdr.h"    /* GRAVITY - shared project-wide constant */
 
 /*------------------------------------------------------------------------------
  Local Macros
@@ -159,7 +160,7 @@ static uint8_t imu_dma_fill_idx = 0U;
  * @brief Index of the imu_dma_rx_buf row holding the most recently completed,
  *        not-yet consumed transfer. 
  */
-static atomic_uchar imu_dma_ready_idx = 0U;
+static _Atomic uint8_t imu_dma_ready_idx = 0U;
 
 /**
  * @brief Synchronization flags.
@@ -345,8 +346,8 @@ HAL_Delay( ms );
   *         If numerical noise causes |xyz|² > 1, XYZ is normalised first so
   *         the output remains a valid unit quaternion.
   *         Uses lsm6dsv320x_from_quaternion_lsb_to_float() 
-  * @param  quat:  Output [w, x, y, z] indexed [0..3].
-  * @param  sflp:  Three raw half-float values from the FIFO slot.
+  * @param  quat  Output [w, x, y, z] indexed [0..3].
+  * @param  sflp  Three raw half-float values from the FIFO slot.
   */
 static void sflp2q
     (
@@ -883,6 +884,9 @@ return IMU_OK;
   *         and restores whichever accel power mode the user last requested
   *         via imu_init() / imu_set_power_mode() (the §6.1.2 forced-HP
   *         constraint no longer applies once the high-G chain is off).
+  *
+  *         Drag deceleration can exceed 50G post-burnout. FSM should delay switching to Low-G (16g) until subsonic.
+  *         
   *         DS14623 Rev3 §6.1.2, Tables 70, 149, 150; COUNTER_BDR_REG1 (0Bh).
   */
 IMU_LSM_STATUS imu_set_accel_fs
@@ -1451,7 +1455,7 @@ return IMU_OK;
   *         High-G chain (±32..320 g): LA_So in mg/LSB (separate sensing chain).
   *         A switch-based index lookup is used because the high-G FS enum
   *         values are not contiguous with the low-G ones in the PID enum space.
-  *         Output: accel in [m/s^2], gyro in [rad/s] 
+  *         Output: accel in [m/s^2], gyro in [dps] 
   * @param  raw:  Source raw counts (non-NULL).
   * @param  data: Destination scaled physical data (non-NULL).
   */
@@ -1465,11 +1469,6 @@ float   acc_sens;
 float   gyro_sens;
 uint8_t acc_idx;
 uint8_t gy_idx;
-
-/** @brief Standard gravity, used to convert g -> m/s^2 (SI). */
-#define IMU_STANDARD_GRAVITY        ( 9.80665f )
-/** @brief deg -> rad conversion factor, used to convert dps -> rad/s (SI). */
-#define IMU_DEG_TO_RAD              ( 0.017453293f )
 
 IMU_ASSERT( raw  != NULL );
 IMU_ASSERT( data != NULL );
@@ -1528,10 +1527,10 @@ switch ( imu_gyro_fs ) {
 IMU_ASSERT( acc_idx < 9U );
 IMU_ASSERT( gy_idx  < 5U );
 
-/* mg/LSB -> g/LSB -> (SI) m/s^2/LSB   */
-acc_sens  = ( acc_sens_mg_lsb[acc_idx]   / 1000.0f ) * IMU_STANDARD_GRAVITY;
-/* mdps/LSB -> dps/LSB -> (SI) rad/s/LSB */
-gyro_sens = ( gyro_sens_mdps_lsb[gy_idx] / 1000.0f ) * IMU_DEG_TO_RAD;
+/* mg/LSB -> g/LSB -> (SI) m/s^2/LSB   				*/
+acc_sens  = ( acc_sens_mg_lsb[acc_idx]   / 1000.0f ) * GRAVITY;
+/* mdps/LSB -> (system unit) dps/LSB. Rotation stays in dps 	*/
+gyro_sens = ( gyro_sens_mdps_lsb[gy_idx] / 1000.0f );
 
 data->accel_x = (float)raw->accel_x * acc_sens;
 data->accel_y = (float)raw->accel_y * acc_sens;
@@ -1540,8 +1539,6 @@ data->gyro_x  = (float)raw->gyro_x  * gyro_sens;
 data->gyro_y  = (float)raw->gyro_y  * gyro_sens;
 data->gyro_z  = (float)raw->gyro_z  * gyro_sens;
 
-#undef IMU_STANDARD_GRAVITY
-#undef IMU_DEG_TO_RAD
 } /* imu_scale_raw */
 
 /*******************************************************************************

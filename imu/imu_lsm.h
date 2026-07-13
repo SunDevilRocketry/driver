@@ -206,9 +206,9 @@ typedef struct _IMU_DATA
     float accel_x;     /* Accelerometer X [m/s^2] */
     float accel_y;     /* Accelerometer Y [m/s^2] */
     float accel_z;     /* Accelerometer Z [m/s^2] */
-    float gyro_x;      /* Gyroscope X [rad/s]     */
-    float gyro_y;      /* Gyroscope Y [rad/s]     */
-    float gyro_z;      /* Gyroscope Z [rad/s]     */
+    float gyro_x;      /* Gyroscope X [dps]       */
+    float gyro_y;      /* Gyroscope Y [dps]       */
+    float gyro_z;      /* Gyroscope Z [dps]       */
     } IMU_DATA;
 
 /**
