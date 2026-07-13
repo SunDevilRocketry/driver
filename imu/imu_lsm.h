@@ -88,7 +88,7 @@ extern "C" {
  * @brief FIFO watermark threshold reference (programmed in FIFO slots/words).
  *        1 LSB = 1 FIFO slot (7 bytes: 1-byte TAG + 6-byte data). DS14623 §9.8.
  *
- *        NOTE: This macro is a reference value; imu_init() configures the 
+ * @note  This macro is a reference value; imu_init() configures the 
  *        watermark dynamically based on the active dataset:
  *          - Raw Base (Gyro + Accel):    2 slots
  *          - SFLP Fusion Additions:     +3 slots (Quat, Grav, Gbias)
