@@ -87,15 +87,19 @@ GPS_STATUS gps_status;
 /*------------------------------------------------------------------------------
  API Function Implementation 
 ------------------------------------------------------------------------------*/
-gps_status = gps_config_antenna();
+gps_status = gps_nmea_toggle(0); /* NMEA disable */
+if ( gps_status != GPS_OK )
+    {
+    return gps_status;
+    }
 
+gps_status = gps_config_antenna();
 if ( gps_status != GPS_OK )
     {
     return gps_status;
     }
 
 gps_status = gps_config_baud();
-
 if ( gps_status != GPS_OK )
     {
     return gps_status;
@@ -147,7 +151,7 @@ else
 	return GPS_OK;
 	}
 
-} /* usb_transmit */
+} /* gps_transmit */
 
 
 /*******************************************************************************
@@ -323,6 +327,90 @@ return GPS_FAIL;
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   * 
+* 		gps_nmea_toggle                                                        *
+*                                                                              *
+* DESCRIPTION:                                                                 * 
+* 		enables or disables NMEA messages                                      *
+*                                                                              *
+*******************************************************************************/
+GPS_STATUS gps_nmea_toggle 
+	(
+    uint8_t toggle /* ON = 1 OFF = 0 or Any */
+	)
+{
+/*------------------------------------------------------------------------------
+ Local Variables
+------------------------------------------------------------------------------*/
+uint8_t nmea_disable[] =
+    {
+    /* UBX Header */
+    0xB5, 0x62,                 /* Header                                    */
+    0x06, 0x8A,                 /* Config Class, Valset command              */
+    0x09, 0x00,                 /* Payload length (9 bytes, little endian)   */
+
+    /* Valset */
+    0x00,                       /* Version                                   */
+    0x01,                       /* Apply immediately                         */
+    0x00, 0x00,
+
+    /* Disable NMEA output on UART1 */
+    0x02, 0x00, 0x74, 0x10,     /* Key ID: CFG-UART1OUTPROT-NMEA (little endian) */
+    0x00,                       /* Disable                                   */
+
+    /* Checksum */
+    0x20, 0xB7
+    };
+uint8_t nmea_enable[] =
+    {
+    /* UBX Header */
+    0xB5, 0x62,                 /* Header                                    */
+    0x06, 0x8A,                 /* Config Class, Valset command              */
+    0x09, 0x00,                 /* Payload length (9 bytes, little endian)   */
+
+    /* Valset */
+    0x00,                       /* Version                                   */
+    0x01,                       /* Apply immediately                         */
+    0x00, 0x00,
+
+    /* Enable NMEA output on UART1 */
+    0x02, 0x00, 0x74, 0x10,     /* Key ID: CFG-UART1OUTPROT-NMEA (little endian) */
+    0x01,                       /* Enable                                    */
+
+    /* Checksum */
+    0x21, 0xB8
+    };
+GPS_STATUS gps_status;
+
+
+/*------------------------------------------------------------------------------
+ API Function Implementation 
+------------------------------------------------------------------------------*/
+/* Transmit config */
+if ( toggle == 1 ) {
+    gps_status = gps_transmit( nmea_enable, 
+                                sizeof( nmea_enable )  , 
+                                GPS_TIMEOUT );
+} else {
+    gps_status = gps_transmit( nmea_disable, 
+                                sizeof( nmea_disable )  , 
+                                GPS_TIMEOUT );
+}
+
+/* Return GPS status */
+if ( gps_status != GPS_OK )
+	{
+	return gps_status;
+	}
+
+/* Wait for ACK */
+return gps_wait_for_ack( 0x06, 0x8A );
+
+} /* gps_nmea_toggle */
+
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   * 
 * 		gps_config_antenna                                                     *
 *                                                                              *
 * DESCRIPTION:                                                                 * 
@@ -342,7 +430,7 @@ uint8_t antenna_config[] =
     /* UBX Header */
     0xB5, 0x62,                 /* Header                                    */
     0x06, 0x8A,                 /* Config Class, Valset command              */
-    0x0E, 0x00,                 /* Payload length (14 bytes, little endian)  */
+    0x13, 0x00,                 /* Payload length (14 bytes, little endian)  */
 
     /* Valset */
     0x00,                       /* Version                                   */
@@ -361,7 +449,7 @@ uint8_t antenna_config[] =
     0x01,                       /* Enable                                    */
 
     /* Checksum */
-    0xE6, 0x39
+    0x4E, 0x2E
     };
 GPS_STATUS gps_status;
 
@@ -422,7 +510,7 @@ uint8_t baud_config[] =
     /* Checksum */
     0xE8, 0x99
     };
-HAL_StatusTypeDef gps_status;
+GPS_STATUS gps_status;
 
 
 /*------------------------------------------------------------------------------
@@ -434,7 +522,7 @@ gps_status = gps_transmit( baud_config,
                                 GPS_TIMEOUT );
 
 /* Return HAL status */
-if ( gps_status != HAL_OK )
+if ( gps_status != GPS_OK )
 	{
 	return gps_status;
 	}

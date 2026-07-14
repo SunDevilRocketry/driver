@@ -125,6 +125,12 @@ GPS_STATUS gps_wait_for_ack
     uint8_t msg_id     /* UBX id of the message being acknowledged     */
     );
 
+/* Toggle NMEA messages */
+GPS_STATUS gps_nmea_toggle
+    (
+    uint8_t toggle
+    );
+
 /* Configure the antenna settings for the GPS */
 GPS_STATUS gps_config_antenna
     (
