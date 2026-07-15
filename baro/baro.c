@@ -1,27 +1,27 @@
 /*******************************************************************************
 *
-* FILE: 
+* FILE:
 * 		baro.c
 *
-* DESCRIPTION: 
+* DESCRIPTION:
 * 		Contains API functions for the barometric pressure sensor
 *
-* COPYRIGHT:                                                                   
-*       Copyright (c) 2025 Sun Devil Rocketry.                                 
-*       All rights reserved.                                                   
-*                                                                              
-*       This software is licensed under terms that can be found in the LICENSE 
-*       file in the root directory of this software component.                 
-*       If no LICENSE file comes with this software, it is covered under the   
-*       BSD-3-Clause.                                                          
-*                                                                              
-*       https://opensource.org/license/bsd-3-clause          
+* COPYRIGHT:
+*       Copyright (c) 2025 Sun Devil Rocketry.
+*       All rights reserved.
+*
+*       This software is licensed under terms that can be found in the LICENSE
+*       file in the root directory of this software component.
+*       If no LICENSE file comes with this software, it is covered under the
+*       BSD-3-Clause.
+*
+*       https://opensource.org/license/bsd-3-clause
 *
 *******************************************************************************/
 
 
 /*------------------------------------------------------------------------------
- Standard Includes                                                                     
+ Standard Includes
 ------------------------------------------------------------------------------*/
 #include <stdbool.h>
 #include <string.h>
@@ -29,14 +29,14 @@
 #include <stdatomic.h>
 
 /*------------------------------------------------------------------------------
- Project Includes                                                                     
+ Project Includes
 ------------------------------------------------------------------------------*/
 #include "main.h"
 #include "sdr_pin_defines_A0002.h"
 #include "baro.h"
 
 /*------------------------------------------------------------------------------
-Global Variables  
+Global Variables
 ------------------------------------------------------------------------------*/
 
 /* Current Baro Sensor configuration */
@@ -52,7 +52,7 @@ static atomic_bool baro_data_ready = false;
 
 
 /*------------------------------------------------------------------------------
- Internal function prototypes 
+ Internal function prototypes
 ------------------------------------------------------------------------------*/
 
 /* Converts two bytes to uint16_t format */
@@ -85,6 +85,12 @@ static BARO_STATUS write_reg
 	uint8_t  data      /* In: Register contents           */
 	);
 
+/* Configure/intialize the barometric pressure sensor */
+static BARO_STATUS baro_config
+		(
+		BARO_CONFIG* config_ptr
+		);
+
 /* Load the compensation data from the baro sensor */
 static BARO_STATUS load_cal_data
 	(
@@ -98,7 +104,7 @@ static float temp_compensate
 	);
 
 /* Apply the compensation formula to raw pressure readouts */
-static float press_compensate 
+static float press_compensate
 	(
 	uint32_t raw_readout
 	);
@@ -117,16 +123,16 @@ static BARO_STATUS baro_flush_fifo
 
 
 /*------------------------------------------------------------------------------
- API Functions 
+ API Functions
 ------------------------------------------------------------------------------*/
 
 
 /*******************************************************************************
 *                                                                              *
-* PROCEDURE:                                                                   * 
+* PROCEDURE:                                                                   *
 *       baro_init                                                              *
 *                                                                              *
-* DESCRIPTION:                                                                 * 
+* DESCRIPTION:                                                                 *
 * 		Intialize the barometric pressure sensor                               *
 *                                                                              *
 *******************************************************************************/
@@ -136,7 +142,7 @@ BARO_STATUS baro_init
 	)
 {
 /*------------------------------------------------------------------------------
- Local variables  
+ Local variables
 ------------------------------------------------------------------------------*/
 BARO_STATUS       baro_status;    /* Status code from Baro API calls   */
 uint8_t           baro_device_id; /* Baro device id                    */
@@ -145,7 +151,7 @@ float             init_temp;      /* Temperature read after init       */
 
 
 /*------------------------------------------------------------------------------
- Initializations 
+ Initializations
 ------------------------------------------------------------------------------*/
 baro_status    = BARO_OK;
 baro_device_id = 0;
@@ -154,7 +160,7 @@ init_temp      = 0;
 
 
 /*------------------------------------------------------------------------------
- API Function Implementation 
+ API Function Implementation
 ------------------------------------------------------------------------------*/
 
 /* Disable IRQ */
@@ -181,8 +187,8 @@ if ( baro_status != BARO_OK )
 HAL_Delay( 10 );
 
 /* Check the Baro error register */
-baro_status = read_regs( BARO_REG_ERR_REG      , 
-                         sizeof( baro_err_reg ), 
+baro_status = read_regs( BARO_REG_ERR_REG      ,
+                         sizeof( baro_err_reg ),
 						 &baro_err_reg );
 if ( baro_status != BARO_OK )
 	{
@@ -210,7 +216,7 @@ if ( baro_status != BARO_OK )
 /* Initialize the compensation temperature */
 baro_status = baro_get_temp( &init_temp );
 if ( baro_status != BARO_OK )
-	{ 
+	{
 	return baro_status;
 	}
 
@@ -229,20 +235,20 @@ return baro_status;
 
 /*******************************************************************************
 *                                                                              *
-* PROCEDURE:                                                                   * 
+* PROCEDURE:                                                                   *
 *       baro_config                                                            *
 *                                                                              *
-* DESCRIPTION:                                                                 * 
+* DESCRIPTION:                                                                 *
 * 		Configure the barometric pressure sensor                               *
 *                                                                              *
 *******************************************************************************/
-BARO_STATUS baro_config
+static BARO_STATUS baro_config
 	(
 	BARO_CONFIG* config_ptr
 	)
 {
 /*------------------------------------------------------------------------------
- Local variables  
+ Local variables
 ------------------------------------------------------------------------------*/
 BARO_STATUS   baro_status; /* Baro API call return codes                  */
 uint8_t       pwr_ctrl;    /* Contents of PWR_CTRL register               */
@@ -252,7 +258,7 @@ uint8_t       iir;         /* Contents of CONFIG register (IIR Filter)    */
 
 
 /*------------------------------------------------------------------------------
- Initializations 
+ Initializations
 ------------------------------------------------------------------------------*/
 baro_status = BARO_OK;
 pwr_ctrl    = 0;
@@ -262,7 +268,7 @@ iir         = 0;
 
 
 /*------------------------------------------------------------------------------
- Extract Baro settings from config struct  
+ Extract Baro settings from config struct
 ------------------------------------------------------------------------------*/
 
 /* Set register contents */
@@ -283,7 +289,7 @@ baro_configuration.IIR_setting       = config_ptr -> IIR_setting;
 
 
 /*------------------------------------------------------------------------------
- API function implementation 
+ API function implementation
 ------------------------------------------------------------------------------*/
 
 /* Write to the PWR_CTRL register -> Operating mode and enable sensors */
@@ -322,32 +328,32 @@ return BARO_OK;
 
 /*******************************************************************************
 *                                                                              *
-* PROCEDURE:                                                                   * 
+* PROCEDURE:                                                                   *
 * 		baro_get_device_id                                                     *
 *                                                                              *
-* DESCRIPTION:                                                                 * 
+* DESCRIPTION:                                                                 *
 * 		Gets the device ID of the barometric pressure sensor, primarily used   *
 *       to verify that the sensor can be accessed by the MCU                   *
 *                                                                              *
 *******************************************************************************/
 BARO_STATUS baro_get_device_id
 	(
-   	uint8_t* baro_id_ptr /* Out: Baro device id */ 
+   	uint8_t* baro_id_ptr /* Out: Baro device id */
 	)
 {
 /*------------------------------------------------------------------------------
- Local Variables 
+ Local Variables
 ------------------------------------------------------------------------------*/
 BARO_STATUS baro_status; /* Status codes returned from baro API calls */
 
 
 /*------------------------------------------------------------------------------
- API Function implementation 
+ API Function implementation
 ------------------------------------------------------------------------------*/
 
 /* Read baro register with I2C */
-baro_status = read_regs( BARO_REG_CHIP_ID, 
-                         sizeof( uint8_t ), 
+baro_status = read_regs( BARO_REG_CHIP_ID,
+                         sizeof( uint8_t ),
 						 baro_id_ptr );
 return baro_status;
 } /* baro_get_device_id */
@@ -355,10 +361,10 @@ return baro_status;
 
 /*******************************************************************************
 *                                                                              *
-* PROCEDURE:                                                                   * 
+* PROCEDURE:                                                                   *
 * 		baro_get_pressure                                                      *
 *                                                                              *
-* DESCRIPTION:                                                                 * 
+* DESCRIPTION:                                                                 *
 * 		retrieves a pressure reading from the sensor                           *
 *                                                                              *
 *******************************************************************************/
@@ -368,7 +374,7 @@ BARO_STATUS baro_get_pressure
 	)
 {
 /*------------------------------------------------------------------------------
-Local variables 
+Local variables
 ------------------------------------------------------------------------------*/
 uint8_t     pressure_bytes[3]; /* Pressure raw readout bytes, LSB first   */
 uint32_t    raw_pressure;      /* Pressure raw readout in uint32_t format */
@@ -386,12 +392,12 @@ memset( &pressure_bytes[0], 0, sizeof( pressure_bytes ) );
 
 
 /*------------------------------------------------------------------------------
-API function implementation 
+API function implementation
 ------------------------------------------------------------------------------*/
 
 /* Read 3 consecutive pressure data registers */
-baro_status = read_regs( BARO_REG_PRESS_DATA, 
-                         sizeof( pressure_bytes ), 
+baro_status = read_regs( BARO_REG_PRESS_DATA,
+                         sizeof( pressure_bytes ),
 						 &pressure_bytes[0] );
 if ( baro_status != BARO_OK )
 	{
@@ -415,20 +421,20 @@ return BARO_OK;
 
 /*******************************************************************************
 *                                                                              *
-* PROCEDURE:                                                                   * 
+* PROCEDURE:                                                                   *
 * 		baro_get_temp                                                          *
 *                                                                              *
-* DESCRIPTION:                                                                 * 
+* DESCRIPTION:                                                                 *
 * 		retrieves a temperature reading from the sensor                        *
 *                                                                              *
 *******************************************************************************/
 BARO_STATUS baro_get_temp
 	(
-    float* temp_ptr 
+    float* temp_ptr
 	)
 {
 /*------------------------------------------------------------------------------
-Local variables 
+Local variables
 ------------------------------------------------------------------------------*/
 uint8_t     temp_bytes[3]; /* Raw temperature readout bytes, LSB first */
 uint32_t    raw_temp;      /* Raw temperature readout in uint32_t format */
@@ -444,12 +450,12 @@ memset( &temp_bytes[0], 0, sizeof( temp_bytes ) );
 
 
 /*------------------------------------------------------------------------------
-API function implementation 
+API function implementation
 ------------------------------------------------------------------------------*/
 
 /* Read 3 consecutive temperature data registers */
-baro_status = read_regs( BARO_REG_TEMP_DATA  , 
-                         sizeof( temp_bytes ), 
+baro_status = read_regs( BARO_REG_TEMP_DATA  ,
+                         sizeof( temp_bytes ),
 						 &temp_bytes[0] );
 if ( baro_status != BARO_OK )
 	{
@@ -459,7 +465,7 @@ if ( baro_status != BARO_OK )
 /* Combine all bytes value to 24 bit value */
 raw_temp = ( ( (uint32_t) temp_bytes[2] << 16 ) |
              ( (uint32_t) temp_bytes[1] <<  8 ) |
-			 ( (uint32_t) temp_bytes[0]       ) ); 
+			 ( (uint32_t) temp_bytes[0]       ) );
 
 /* Adjust using calibration data */
 *temp_ptr = temp_compensate( raw_temp );
@@ -471,10 +477,10 @@ return BARO_OK;
 
 /*******************************************************************************
 *                                                                              *
-* PROCEDURE:                                                                   * 
+* PROCEDURE:                                                                   *
 * 		baro_get_altitude                                                      *
 *                                                                              *
-* DESCRIPTION:                                                                 * 
+* DESCRIPTION:                                                                 *
 * 		gets the altitude of the rocket from the sensor readouts               *
 *                                                                              *
 *******************************************************************************/
@@ -488,7 +494,7 @@ return BARO_OK;
 
 
 /*------------------------------------------------------------------------------
- Internal procedures 
+ Internal procedures
 ------------------------------------------------------------------------------*/
 
 
@@ -548,9 +554,9 @@ static BARO_STATUS read_regs
 	uint8_t  num_regs, /* In:  Number of registers to read */
 	uint8_t* pData     /* Out: Register contents           */
 	)
-{   
+{
 /*------------------------------------------------------------------------------
- Local variables  
+ Local variables
 ------------------------------------------------------------------------------*/
 HAL_StatusTypeDef hal_status;  /* HAL API Return codes */
 uint32_t          i2c_timeout; /* I2C read timeout     */
@@ -564,7 +570,7 @@ i2c_timeout = BARO_DEFAULT_TIMEOUT*num_regs;
 
 
 /*------------------------------------------------------------------------------
- Implementation 
+ Implementation
 ------------------------------------------------------------------------------*/
 
 /* Read I2C register*/
@@ -573,7 +579,7 @@ hal_status = HAL_I2C_Mem_Read( &( BARO_I2C )       ,
 				               reg_addr            ,
 				               I2C_MEMADD_SIZE_8BIT,
 				               pData               ,
-				               num_regs            , 
+				               num_regs            ,
 				               i2c_timeout );
 if ( hal_status != HAL_OK )
 	{
@@ -589,10 +595,10 @@ else
 
 /*******************************************************************************
 *                                                                              *
-* PROCEDURE:                                                                   * 
+* PROCEDURE:                                                                   *
 *       write_reg                                                              *
 *                                                                              *
-* DESCRIPTION:                                                                 * 
+* DESCRIPTION:                                                                 *
 *       Write to one of the baro's registers at a specified address            *
 *                                                                              *
 *******************************************************************************/
@@ -601,15 +607,15 @@ static BARO_STATUS write_reg
 	uint8_t  reg_addr, /* In: Register address            */
 	uint8_t  data      /* In: Register contents           */
 	)
-{   
+{
 /*------------------------------------------------------------------------------
- Local variables  
+ Local variables
 ------------------------------------------------------------------------------*/
 HAL_StatusTypeDef hal_status; /* HAL API Return codes */
 
 
 /*------------------------------------------------------------------------------
- Implementation 
+ Implementation
 ------------------------------------------------------------------------------*/
 
 /* Write to register with I2C */
@@ -618,7 +624,7 @@ hal_status = HAL_I2C_Mem_Write( &( BARO_I2C )       ,
 				                reg_addr            ,
 				                I2C_MEMADD_SIZE_8BIT,
 				                &data               ,
-				                sizeof( uint8_t )   , 
+				                sizeof( uint8_t )   ,
 				                BARO_DEFAULT_TIMEOUT );
 if ( hal_status != HAL_OK )
 	{
@@ -647,7 +653,7 @@ static BARO_STATUS load_cal_data
 	)
 {
 /*------------------------------------------------------------------------------
- Local variables  
+ Local variables
 ------------------------------------------------------------------------------*/
 BARO_CAL_DATA_INT cal_data_int;       /* Raw calibration data from baro       */
 uint8_t           buffer[BARO_CAL_BUFFER_SIZE]; /* Buffer for cal data        */
@@ -655,19 +661,19 @@ BARO_STATUS       baro_status;        /* Baro API return codes                */
 
 
 /*------------------------------------------------------------------------------
- Initializations 
+ Initializations
 ------------------------------------------------------------------------------*/
 memset( &cal_data_int, 0, sizeof( cal_data_int ) );
 memset( &buffer[0]   , 0, sizeof( buffer       ) );
 
 
 /*------------------------------------------------------------------------------
- Read Baro Registers 
+ Read Baro Registers
 ------------------------------------------------------------------------------*/
 
 /* Get Data */
-baro_status = read_regs( BARO_REG_NVM_PAR_T1, 
-                         BARO_CAL_BUFFER_SIZE, 
+baro_status = read_regs( BARO_REG_NVM_PAR_T1,
+                         BARO_CAL_BUFFER_SIZE,
 						 &buffer[0] );
 if ( baro_status != BARO_OK )
 	{
@@ -692,7 +698,7 @@ cal_data_int.par_p11 = (int8_t) buffer[20];
 
 
 /*------------------------------------------------------------------------------
- Convert to floating point format ( BMP390 Datasheet pg. 55 ) 
+ Convert to floating point format ( BMP390 Datasheet pg. 55 )
 ------------------------------------------------------------------------------*/
 
 /* Temp Compensation */
@@ -736,25 +742,25 @@ static float temp_compensate
 	)
 {
 /*------------------------------------------------------------------------------
- Local variables  
+ Local variables
 ------------------------------------------------------------------------------*/
 float partial_data1; /* Intermediate compensation results */
 float partial_data2;
 
 
 /*------------------------------------------------------------------------------
- Initializations 
+ Initializations
 ------------------------------------------------------------------------------*/
 partial_data1 = 0;
 partial_data2 = 0;
 
 
 /*------------------------------------------------------------------------------
- Calculations 
+ Calculations
 ------------------------------------------------------------------------------*/
 partial_data1 = (float)( raw_readout - baro_cal_data.par_t1 );
 partial_data2 = (float)( partial_data1*baro_cal_data.par_t2 );
-baro_cal_data.comp_temp = (float)( partial_data2 + 
+baro_cal_data.comp_temp = (float)( partial_data2 +
                             powf( partial_data1, 2)*baro_cal_data.par_t3 );
 return baro_cal_data.comp_temp;
 
@@ -770,13 +776,13 @@ return baro_cal_data.comp_temp;
 *       Apply the compensation formula to raw pressure readouts                *
 *                                                                              *
 *******************************************************************************/
-static float press_compensate 
+static float press_compensate
 	(
 	uint32_t raw_readout
 	)
 {
 /*------------------------------------------------------------------------------
- Local variables  
+ Local variables
 ------------------------------------------------------------------------------*/
 float partial_data1; /* Intermediate compensation results */
 float partial_data2;
@@ -787,7 +793,7 @@ float partial_out2;
 
 
 /*------------------------------------------------------------------------------
- Initializations 
+ Initializations
 ------------------------------------------------------------------------------*/
 partial_data1 = 0;
 partial_data2 = 0;
@@ -798,27 +804,27 @@ partial_out2  = 0;
 
 
 /*------------------------------------------------------------------------------
- Calculations 
+ Calculations
 ------------------------------------------------------------------------------*/
 partial_data1 = baro_cal_data.par_p6*baro_cal_data.comp_temp;
 partial_data2 = baro_cal_data.par_p7*powf( baro_cal_data.comp_temp, 2 );
 partial_data3 = baro_cal_data.par_p8*powf( baro_cal_data.comp_temp, 3 );
-partial_out1  =  ( baro_cal_data.par_p5 + partial_data1 + 
+partial_out1  =  ( baro_cal_data.par_p5 + partial_data1 +
                    partial_data2        + partial_data3 );
 
 partial_data1 = baro_cal_data.par_p2*baro_cal_data.comp_temp;
 partial_data2 = baro_cal_data.par_p3*powf( baro_cal_data.comp_temp, 2 );
 partial_data3 = baro_cal_data.par_p4*powf( baro_cal_data.comp_temp, 3 );
-partial_out2  = (float) raw_readout*( baro_cal_data.par_p1 + 
+partial_out2  = (float) raw_readout*( baro_cal_data.par_p1 +
                                       partial_data1        +
 									  partial_data2        +
 									  partial_data3 );
 
 partial_data1 = powf( ( (float) raw_readout ), 2 );
-partial_data2 = ( baro_cal_data.par_p9 + 
+partial_data2 = ( baro_cal_data.par_p9 +
                   baro_cal_data.par_p10*baro_cal_data.comp_temp );
 partial_data3 = partial_data1*partial_data2;
-partial_data4 = ( partial_data3 + 
+partial_data4 = ( partial_data3 +
                   powf( ( (float) raw_readout ), 3 )*baro_cal_data.par_p11 );
 
 return partial_out1 + partial_out2 + partial_data4;
@@ -873,8 +879,8 @@ return write_reg( BARO_REG_CMD, BARO_CMD_FIFO_FLUSH );
 *******************************************************************************/
 bool baro_get_baro_data_ready
     (
-    void 
-    ) 
+    void
+    )
 {
 return baro_data_ready;
 
@@ -883,10 +889,10 @@ return baro_data_ready;
 
 /*******************************************************************************
 *                                                                              *
-* PROCEDURE:                                                                   * 
+* PROCEDURE:                                                                   *
 * 		start_baro_read_IT                                                	   *
 *                                                                              *
-* DESCRIPTION:                                                                 * 
+* DESCRIPTION:                                                                 *
 * 		Receive baro data in interrupt mode.	                               *
 *                                                                              *
 *******************************************************************************/
@@ -894,9 +900,9 @@ BARO_STATUS start_baro_read_IT
 	(
 	void
 	)
-{   
+{
 /*------------------------------------------------------------------------------
- Local variables  
+ Local variables
 ------------------------------------------------------------------------------*/
 HAL_StatusTypeDef hal_status;  /* HAL API Return codes */
 BARO_STATUS baro_status;       /* Return codes for baro API calls         */
@@ -911,7 +917,7 @@ baro_pres_proc = NAN;
 baro_temp_proc = NAN;
 
 /*------------------------------------------------------------------------------
- Implementation 
+ Implementation
 ------------------------------------------------------------------------------*/
 
 /* Set ready flag to false */
@@ -939,10 +945,10 @@ else
 
 /*******************************************************************************
 *                                                                              *
-* PROCEDURE:                                                                   * 
+* PROCEDURE:                                                                   *
 * 		baro_IT_handler                                                  	   *
 *                                                                              *
-* DESCRIPTION:                                                                 * 
+* DESCRIPTION:                                                                 *
 * 		ISR for baro data reception. Heavy ISR.	Consider moving processing to  *
 *		get_baro_IT.								                           *
 *                                                                              *
@@ -953,7 +959,7 @@ BARO_STATUS baro_IT_handler
 	)
 {
 /*------------------------------------------------------------------------------
-Local variables 
+Local variables
 ------------------------------------------------------------------------------*/
 uint32_t    raw_pressure;      /* Pressure raw readout in uint32_t format */
 uint32_t 	raw_temp;		   /* Temp raw readout in uint32_t format*/
@@ -969,7 +975,7 @@ baro_status  = BARO_OK;
 
 
 /*------------------------------------------------------------------------------
-API function implementation 
+API function implementation
 ------------------------------------------------------------------------------*/
 
 /* Combine all bytes value to 24 bit value */
@@ -980,7 +986,7 @@ raw_pressure = ( ( (uint32_t) baro_raw_buffer[2] << 16 ) |
 				 /* Combine all bytes value to 24 bit value */
 raw_temp = ( ( (uint32_t) baro_raw_buffer[5] << 16 ) |
              ( (uint32_t) baro_raw_buffer[4] <<  8 ) |
-			 ( (uint32_t) baro_raw_buffer[3]       ) ); 
+			 ( (uint32_t) baro_raw_buffer[3]       ) );
 
 /* Adjust using calibration data */
 baro_temp_proc = temp_compensate( raw_temp );
@@ -996,10 +1002,10 @@ return baro_status;
 
 /*******************************************************************************
 *                                                                              *
-* PROCEDURE:                                                                   * 
+* PROCEDURE:                                                                   *
 * 		get_baro_it                   		                               	   *
 *                                                                              *
-* DESCRIPTION:                                                                 * 
+* DESCRIPTION:                                                                 *
 * 		Getter function for IT baro data.				                       *
 *                                                                              *
 *******************************************************************************/
@@ -1022,5 +1028,5 @@ return BARO_OK;
 
 
 /*******************************************************************************
-* END OF FILE                                                                  * 
+* END OF FILE                                                                  *
 *******************************************************************************/
