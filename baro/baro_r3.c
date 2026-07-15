@@ -1,7 +1,7 @@
 /**
   ******************************************************************************
   * @file           : baro_r3.c
-  * @brief          : Driver for the barometer on FC rev 3.
+  * @brief          : Driver for the MS5607-02BA03 barometer on FC rev 3.
   ******************************************************************************
   * @copyright
   *
@@ -16,16 +16,9 @@
   * https://opensource.org/license/bsd-3-clause
   */
 
-/*
- * Implementation Notes
- * I think we can create a TIM_OC_InitTypeDef, configure HAL_TIM_OC_ConfigChannel in a channel,
- * and then run HAL_TIM_OC_Start. Our callback is then HAL_TIM_OC_DelayElapsedCallback().
- */
-
 /* Includes ------------------------------------------------------------------*/
 
 /* Standard */
-#include <cstdint>
 #include <stdbool.h>
 #include <stdatomic.h>
 
@@ -36,6 +29,8 @@
 #include "baro.h"
 
 /* Type Definitions ----------------------------------------------------------*/
+
+/* Baro calibration data struct in integer format */
 typedef struct _BARO_CAL_DATA_INT
 	{
 	uint16_t par_c1; // Pressure Sensitity
@@ -46,13 +41,262 @@ typedef struct _BARO_CAL_DATA_INT
 	uint16_t par_c6; // Temp. Coeff. of Temperature
 	} BARO_CAL_DATA_INT;
 
+/* States for FSM to read data */
+typedef enum _BARO_READ_STATE
+    {
+    BARO_CONV_PRESSURE,    // Start pressure Conversion
+    BARO_WAIT_PRESSURE,    // Pressure Conversion Wait
+    BARO_READ_PRESSURE,    // Start pressure ADC Read
+    BARO_CONV_TEMPERATURE, // Start Temp Conversion
+    BARO_WAIT_TEMPERATURE, // Temp Conversion Wait
+    BARO_READ_TEMPERATURE, // Start Temperature ADC Read
+    BARO_READ_FINISH,      // Complete sensor reading
+    BARO_READ_DONE,         // Done
+    BARO_READ_FAIL
+    } BARO_READ_STATE;
 /* Global Variables ----------------------------------------------------------*/
 
 /* Current Baro Sensor configuration */
 static BARO_CONFIG   baro_configuration;
 
 /* Baro calibration coefficients for measurement compensation */
-static BARO_CAL_DATA baro_cal_data;
+static BARO_CAL_DATA_INT baro_cal_data;
 
-static atomic_bool baro_data_ready = false;
+/* Store pre-generated commands for sensor conversion
+ * Derived from config, set during init
+ */
+static uint8_t pressure_cmd;
+static uint8_t temperature_cmd;
 
+/* Store pre-calculated sensor conversion timeouts
+ * Derived from config, set during init, stored in microseconds
+ */
+static uint32_t pressure_timeout;
+static uint32_t temperature_timeout;
+
+/* Raw SPI bytes with readings */
+uint8_t baro_raw_temp_buffer[3];
+uint8_t baro_raw_press_buffer[3];
+
+/* State of barometer read process */
+static _Atomic BARO_READ_STATE baro_read_state = BARO_READ_FAIL;
+
+static BARO_STATUS success;
+
+/* Private function prototypes -----------------------------------------------*/
+
+/* Some of these are probably good candidates for macros */
+
+/*
+ * Implementation Notes
+ * I think we can create a TIM_OC_InitTypeDef, configure HAL_TIM_OC_ConfigChannel in a channel,
+ * and then run HAL_TIM_OC_Start. Our callback is then HAL_TIM_OC_DelayElapsedCallback().
+ */
+static BARO_STATUS create_timer_interrupt // TODO actually implement
+    (
+    uint32_t timeout_us
+    );
+
+static BARO_STATUS clear_timer_interrupt // TODO actually implement
+    (
+    void
+    );
+
+static BARO_STATUS transmit_cmd_IT
+    (
+    uint8_t command_byte
+    );
+
+static BARO_STATUS transceive_adc_IT
+    (
+    uint8_t* out_buffer
+    );
+
+static void update_state
+    (
+    BARO_READ_STATE next_state
+    );
+
+/* Procedures ----------------------------------------------------------------*/
+
+/* TODO
+ * - write baro_init and its helpers
+ * - write get_baro_it (this is where the buffers will be converted to
+ *   usable values and calculations applied to return the final float)
+ */
+
+/**
+  * @brief Check if barometer data is ready
+  *
+  * @details It looks at the barometer state machine status and checks if it
+  * is in a successful terminal state (BARO_READ_DONE, not BARO_READ_FAIL).
+  *
+  * @retval Ready status
+  */
+bool baro_get_baro_data_ready
+    (
+    void
+    )
+{
+return baro_read_state == BARO_READ_DONE;
+}
+
+/**
+  * @brief Initiate reading of baro via interrupt mode
+  *
+  * @details If baro_read_state is in a terminal state (OK or FAIL), this resets
+  * the state to the first state and calls the handler for the first time to
+  * start the process. If it is NOT in a terminal state, that means a read is already
+  * in progress, and this function will do nothing.
+  *
+  * @retval Status of the barometer
+  */
+BARO_STATUS start_baro_read_IT
+    (
+    void
+    )
+{
+switch(baro_read_state) {
+    case BARO_READ_FAIL:
+    case BARO_READ_DONE: // No currently running read
+        baro_read_state = BARO_CONV_PRESSURE;
+        baro_IT_handler(); // Keep FSM logic in that function
+        break;
+    default: // Read in progress
+        return BARO_BUSY;
+}
+}
+
+/**
+  * @brief Interrupt service routine for data acquisition
+  *
+  * @details This function must be called by three interrupt callbacks:
+  * SPI_TxCpltCallback(), HAL_SPI_TxRxCpltCallback(), and
+  * HAL_TIM_OC_DelayElapsedCallback(). These bring the read through a series of
+  * 7 states (plus a done and fail state), needed to account for timeouts required by the chip.
+  *
+  * @retval Status of the barometer
+  */
+BARO_STATUS baro_IT_handler
+    (
+    void
+    )
+{
+switch(baro_read_state) {
+    // TODO actually deal with chip select pin
+    case BARO_CONV_PRESSURE:
+        // 1. Called by start_baro_read_IT, start pressure conversion
+        success = transmit_cmd_IT(pressure_cmd);
+        update_state(BARO_WAIT_PRESSURE);
+        break;
+    case BARO_WAIT_PRESSURE:
+        // 2. Called by SPI_TxCpltCallback(), create pressure conversion timeout
+        success = create_timer_interrupt(pressure_timeout);
+        update_state(BARO_READ_PRESSURE);
+        break;
+    case BARO_READ_PRESSURE:
+        // 3. Called by HAL_TIM_OC_DelayElapsedCallback(), press temp ADC read
+        success = transceive_adc_IT(baro_raw_press_buffer);
+        update_state(BARO_CONV_TEMPERATURE);
+        break;
+    case BARO_CONV_TEMPERATURE:
+        // 4. Called by HAL_SPI_TxRxCpltCallback(), start temperature conversion
+        success = transmit_cmd_IT(temperature_cmd);
+        update_state(BARO_WAIT_TEMPERATURE);
+        break;
+    case BARO_WAIT_TEMPERATURE:
+        // 5. Called by SPI_TxCpltCallback(), create temp conversion timeout
+        success = create_timer_interrupt(temperature_timeout);
+        update_state(BARO_READ_TEMPERATURE);
+        break;
+    case BARO_READ_TEMPERATURE:
+        // 6. Called by HAL_TIM_OC_DelayElapsedCallback(), run temp ADC read
+        success = transceive_adc_IT(baro_raw_press_buffer);
+        update_state(BARO_READ_FINISH);
+        break;
+    case BARO_READ_FINISH:
+        // 7. Called by HAL_SPI_TxRxCpltCallback(), switch to done state.
+        success = BARO_OK;
+        update_state(BARO_READ_DONE);
+        break;
+    case BARO_READ_DONE:
+        // We're done. Nothing happens.
+        success = BARO_OK;
+        break;
+    default:
+        success = BARO_FAIL; // BARO_READ_FAIL or undefined state
+}
+return success;
+}
+
+/* Helpers ----------------------------------------------------------------*/
+
+/**
+ * @brief Transmits a single command byte to the baro
+ *
+ * @param command_byte The command byte to transmit.
+ *
+ * @retval The status of the barometer
+ */
+static BARO_STATUS transmit_cmd_IT
+    (
+    uint8_t command_byte
+    )
+{
+HAL_StatusTypeDef success;
+success = HAL_SPI_Transmit_IT(BARO_SPI, &command_byte, 1);
+
+if( success == HAL_OK ){
+    return BARO_OK;
+} else {
+    return BARO_SPI_ERROR;
+}
+}
+
+/**
+ * @brief Requests the 3 bytes of data currently in the ADC
+ *
+ * @param out_buffer The 3 byte buffer to place received SPI bytes in.
+ *
+ * @retval The status of the barometer
+ */
+static BARO_STATUS transceive_adc_IT
+    (
+    uint8_t* out_buffer
+    )
+{
+/* The zero byte is the ADC command, and the last two are filler bytes */
+/* They should do nothing in the chip's command language */
+/* This could still be wrong, though. We'll need to test on real HW. */
+/* Each result is 24 bits (3 bytes) */
+uint8_t in_buffer[3] = {0x00, 0xFF, 0xFF};
+
+HAL_StatusTypeDef success;
+success = HAL_SPI_TransmitReceive_IT(BARO_SPI, &in_buffer, &out_buffer, 3);
+
+if( success == HAL_OK ){
+    return BARO_OK;
+} else {
+    return BARO_SPI_ERROR;
+}
+}
+
+/**
+ * @brief Moved to requested state if no fail conditions are detected
+ *
+ * @param next_state The baro read state to switch to.
+ */
+static void update_state
+    (
+    BARO_READ_STATE next_state
+    )
+{
+if(success == BARO_OK)
+    {
+    baro_read_state = next_state;
+    }
+else
+    {
+    baro_read_state = BARO_READ_FAIL;
+    }
+}

@@ -106,6 +106,9 @@ typedef enum _BARO_STATUS
 	#ifdef A0002_REV2
 	BARO_I2C_ERROR              ,
 	#endif
+	#ifdef A0010
+	BARO_SPI_ERROR              ,
+	#endif
 	BARO_CANNOT_RESET           ,
 	BARO_FIFO_ERROR				,
 	BARO_BUSY
