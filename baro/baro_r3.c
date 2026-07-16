@@ -123,6 +123,7 @@ static void update_state
  * - write baro_init and its helpers
  * - write get_baro_it (this is where the buffers will be converted to
  *   usable values and calculations applied to return the final float)
+ * - write the timer interrupt creation functions
  */
 
 /**
@@ -196,6 +197,7 @@ switch(baro_read_state) {
         break;
     case BARO_READ_PRESSURE:
         // 3. Called by HAL_TIM_OC_DelayElapsedCallback(), press temp ADC read
+        clear_timer_interrupt();
         success = transceive_adc_IT(baro_raw_press_buffer);
         update_state(BARO_CONV_TEMPERATURE);
         break;
@@ -211,6 +213,7 @@ switch(baro_read_state) {
         break;
     case BARO_READ_TEMPERATURE:
         // 6. Called by HAL_TIM_OC_DelayElapsedCallback(), run temp ADC read
+        clear_timer_interrupt();
         success = transceive_adc_IT(baro_raw_press_buffer);
         update_state(BARO_READ_FINISH);
         break;
@@ -230,6 +233,32 @@ return success;
 }
 
 /* Helpers ----------------------------------------------------------------*/
+
+/**
+ * @brief Creates a timer interrupt for at least the specified duration
+ *
+ * @details This uses the microseconds timer, adding the requested time
+ * to the current time in microseconds modulo the period, to avoid corner
+ * cases with overflows
+ *
+ * @param timeout_us The time to wait in microseconds
+ *
+ * @retval The status of the barometer
+ */
+static BARO_STATUS create_timer_interrupt // TODO actually implement
+    (
+    uint32_t timeout_us
+    )
+{
+    // This uses output capture without changing pin
+    // PSEUDOCODE
+    // Create a TIM_OC_InitTypeDef
+    // Set its pulse to __HAL_TIM_GET_COUNTER(&MICRO_TIM) + timeout_us
+    // Set its mode to TIM_OCMODE_TIMING
+    // etc...
+    // Configure the given TIM channel with this.
+    // Start the timer. Handlers are called in stm32h7xx_it.c
+}
 
 /**
  * @brief Transmits a single command byte to the baro
