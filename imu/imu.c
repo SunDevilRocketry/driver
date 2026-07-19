@@ -516,11 +516,12 @@ IMU_STATUS imu_get_mag_xyz
 /*------------------------------------------------------------------------------
  Local variables 
 ------------------------------------------------------------------------------*/
-uint8_t     regMag[6];    /* Magnetometer register bytes      */
-uint16_t    mag_x_raw;    /* Raw magnetometer sensor readouts */ 
-uint16_t    mag_y_raw; 
-uint16_t    mag_z_raw; 
-IMU_STATUS  imu_status;   /* IMU status return codes          */
+uint8_t    regMag[8];        /* Magnetometer register bytes      */
+int16_t    mag_x_raw;        /* Raw magnetometer sensor readouts */
+int16_t    mag_y_raw;
+int16_t    mag_z_raw;
+uint16_t   mag_hall_raw = 0; /* Rev 1 does not provide RHALL     */
+IMU_STATUS imu_status;       /* IMU status return codes           */
 
 
 /*------------------------------------------------------------------------------
@@ -528,40 +529,73 @@ IMU_STATUS  imu_status;   /* IMU status return codes          */
 ------------------------------------------------------------------------------*/
 
 /* Read MAG_X, MAG_Y, MAG_Z high byte and low byte registers */
-#if   defined( A0002_REV1 )
-    imu_status = read_mag_regs( IMU_REG_MAG_XOUT_H, 
-                                &regMag[0]        , 
-                                sizeof( regMag ) );
-#elif defined( A0002_REV2 )
-    imu_status = read_mag_regs( MAG_REG_DATAX_L, 
-                                &regMag[0]     , 
-                                sizeof( regMag ) );
+#if     defined(A0002_REV1)
+    imu_status = read_mag_regs(IMU_REG_MAG_XOUT_H,
+                               &regMag[0],
+                               6);
+#elif   defined(A0002_REV2)
+    imu_status = read_mag_regs(MAG_REG_DATAX_L,
+                               &regMag[0],
+                               sizeof(regMag));
 #endif
 
 /* Check for HAL IMU error */
-if ( imu_status == IMU_TIMEOUT )
-	{
-	return IMU_TIMEOUT;
-	}
+if ( imu_status != IMU_OK )
+    {
+    return imu_status;
+    }
 
 /* Combine high byte and low byte to 16 bit data */
 #if   defined( A0002_REV1 )
     mag_x_raw  = ( (uint16_t) regMag[1] ) << 8 | regMag[0];
     mag_y_raw  = ( (uint16_t) regMag[3] ) << 8 | regMag[2];
     mag_z_raw  = ( (uint16_t) regMag[5] ) << 8 | regMag[4];
-#elif defined( A0002_REV2 )
-    mag_x_raw  = (   (uint16_t) regMag[1]                         << MAG_XY_MSB_BITSHIFT ) | 
-                 ( ( (uint16_t) regMag[0] && MAG_XY_LSB_BITMASK ) >> MAG_XY_LSB_BITSHIFT );
-    mag_y_raw  = (   (uint16_t) regMag[3]                         << MAG_XY_MSB_BITSHIFT ) | 
-                 ( ( (uint16_t) regMag[2] && MAG_XY_LSB_BITMASK ) >> MAG_XY_LSB_BITSHIFT );
-    mag_z_raw  = (   (uint16_t) regMag[5]                         << MAG_Z_MSB_BITSHIFT  ) | 
-                 ( ( (uint16_t) regMag[4] && MAG_Z_LSB_BITMASK )  >> MAG_Z_LSB_BITSHIFT  );
+#elif defined(A0002_REV2)
+    mag_x_raw =
+        (int16_t)(((uint16_t)regMag[1] << MAG_XY_MSB_BITSHIFT) |
+        (((uint16_t)regMag[0] & MAG_XY_LSB_BITMASK) >>
+         MAG_XY_LSB_BITSHIFT));
+
+    mag_y_raw =
+        (int16_t)(((uint16_t)regMag[3] << MAG_XY_MSB_BITSHIFT) |
+        (((uint16_t)regMag[2] & MAG_XY_LSB_BITMASK) >>
+         MAG_XY_LSB_BITSHIFT));
+
+    mag_z_raw =
+        (int16_t)(((uint16_t)regMag[5] << MAG_Z_MSB_BITSHIFT) |
+        (((uint16_t)regMag[4] & MAG_Z_LSB_BITMASK) >>
+         MAG_Z_LSB_BITSHIFT));
+
+    mag_hall_raw =
+        (uint16_t)(((uint16_t)regMag[7] << MAG_RHALL_MSB_BITSHIFT) |
+        (((uint16_t)regMag[6] & MAG_RHALL_LSB_BITMASK) >>
+         MAG_RHALL_LSB_BITSHIFT));
+
+    /* Sign-extend the packed BMM150 measurements. */
+    if (mag_x_raw & (1 << 12))
+        {
+        mag_x_raw |= (int16_t)~((1 << 13) - 1);
+        }
+
+    if (mag_y_raw & (1 << 12))
+        {
+        mag_y_raw |= (int16_t)~((1 << 13) - 1);
+        }
+
+    if (mag_z_raw & (1 << 14))
+        {
+        mag_z_raw |= (int16_t)~((1 << 15) - 1);
+        }
 #endif
 
 /* Export sensor data */
 pIMU->mag_x = mag_x_raw;
 pIMU->mag_y = mag_y_raw;
 pIMU->mag_z = mag_z_raw;
+
+#if defined(A0002_REV2)
+pIMU->mag_hall = mag_hall_raw;
+#endif
 
 return IMU_OK;
 } /* imu_get_mag_xyz */
