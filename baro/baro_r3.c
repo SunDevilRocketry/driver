@@ -157,15 +157,18 @@ BARO_STATUS start_baro_read_IT
     void
     )
 {
-switch(baro_read_state) {
+switch ( baro_read_state )
+    {
     case BARO_READ_FAIL:
+
     case BARO_READ_DONE: // No currently running read
         baro_read_state = BARO_CONV_PRESSURE;
         baro_IT_handler(); // Keep FSM logic in that function
         break;
+
     default: // Read in progress
         return BARO_BUSY;
-}
+    }
 }
 
 /**
