@@ -30,24 +30,40 @@
     #include "imu_legacy.h"
 #endif
 
-typedef struct {
+typedef struct 
+    {
     float accel[3];         /* m/s^2 (SI)                           */
     float gyro[3];          /* dps                                  */
     float quaternion[4];    /* [w, x, y, z], unit quat              */
     bool  quaternion_valid; /* false on legacy until AHRS warms up  */
     bool  is_valid;
-} IMU_FlightData;
+    } IMU_FlightData;
 
-typedef enum {
+typedef enum 
+    {
     IMU_SYS_OK = 0,
     IMU_SYS_FAIL,
     IMU_SYS_BUSY,      /* async path: no new data yet */
     IMU_SYS_NO_DATA,
     IMU_SYS_INIT_FAIL
-} IMU_SYS_STATUS;
+    } IMU_SYS_STATUS;
 
-IMU_SYS_STATUS imu_system_init   ( void );
-IMU_SYS_STATUS imu_system_update ( IMU_FlightData* out ); /* non-blocking where backend allows */
+/**
+ * @return IMU_SYS_STATUS
+ */
+IMU_SYS_STATUS imu_system_init
+    (
+    void
+    );
+
+/**
+ * @param  out: Destination for unified flight data.
+ * @return IMU_SYS_STATUS
+ */
+IMU_SYS_STATUS imu_system_update
+    (
+    IMU_FlightData* out
+    ); /* non-blocking where backend allows */
 
 #endif /* IMU_H */
 

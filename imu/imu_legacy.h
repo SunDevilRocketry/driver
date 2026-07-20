@@ -216,7 +216,8 @@ extern "C" {
 ------------------------------------------------------------------------------*/
 
 /** @brief Raw accel/gyro/mag counts as read off the IMU and magnetometer     */
-typedef struct _IMU_RAW {
+typedef struct _IMU_RAW 
+    {
     int16_t    accel_x;
     int16_t    accel_y;
     int16_t    accel_z;
@@ -227,25 +228,27 @@ typedef struct _IMU_RAW {
     int16_t    mag_y;
     int16_t    mag_z;
     uint16_t    mag_hall;
-} IMU_RAW;
+    } IMU_RAW;
 
 /** @brief Processed/estimated vehicle attitude, rates, and kinematic state   */
-typedef struct _STATE_ESTIMATION {
-	float roll_angle;
-	float pitch_angle;
+typedef struct _STATE_ESTIMATION 
+    {
+    float roll_angle;
+    float pitch_angle;
     float yaw_angle;
-	float roll_rate;
-	float pitch_rate;
+    float roll_rate;
+    float pitch_rate;
     float yaw_rate;
     float velocity;
     float velo_x;
     float velo_y;
     float velo_z;     
-	float position;
-} STATE_ESTIMATION;
+    float position;
+    } STATE_ESTIMATION;
 
 /** @brief Physical-unit converted accel/gyro/mag data                       */
-typedef struct _IMU_CONVERTED {
+typedef struct _IMU_CONVERTED 
+    {
     float accel_x;
     float accel_y;
     float accel_z;
@@ -255,24 +258,25 @@ typedef struct _IMU_CONVERTED {
     float mag_x ;
     float mag_y ;
     float mag_z ;
-} IMU_CONVERTED;
+    } IMU_CONVERTED;
 
 /** @brief Aggregate struct containing converted IMU data and state estimate */
 typedef struct _IMU_DATA 
-	{
+    {
     IMU_CONVERTED imu_converted;
     STATE_ESTIMATION state_estimate;
-	} IMU_DATA;
+    } IMU_DATA;
 
 /** @brief Per-axis accel/gyro zero-offset calibration values                */
-typedef struct _IMU_OFFSET {
+typedef struct _IMU_OFFSET 
+    {
     float accel_x;
     float accel_y;
     float accel_z;
     float gyro_x ;
     float gyro_y ;
     float gyro_z ;
-} IMU_OFFSET;
+    } IMU_OFFSET;
 
 /** @brief Sensor enable bitfield, written to IMU_REG_PWR_CTRL                */
 typedef enum _IMU_SENSOR_ENABLE
@@ -388,7 +392,7 @@ typedef struct _MAG_TRIM
 
 /** @brief User IMU configuration settings, passed in to imu_init()          */
 typedef struct _IMU_CONFIG 
-	{
+    {
     IMU_SENSOR_ENABLE sensor_enable;      /* Enabled Sensors                    */
     IMU_ODR_SETTING   acc_odr;            /* Accelerometer Output Data Rate     */ 
     IMU_ODR_SETTING   gyro_odr;           /* Gyroscope Output Data Rate         */
@@ -402,11 +406,11 @@ typedef struct _IMU_CONFIG
     MAG_OP_MODE       mag_op_mode;        /* Magnetometer Operation Mode        */
     uint8_t           mag_xy_repititions; /* Magnetometer XY Measurement Reps   */
     uint8_t           mag_z_repititions;  /* Magnetometer Z  Measurement Reps   */
-	} IMU_CONFIG;
+    } IMU_CONFIG;
 
 /** @brief Standard status return codes for all IMU driver operations        */
 typedef enum IMU_STATUS
-	{
+    {
     IMU_OK              = 0,
     IMU_FAIL               ,
     IMU_UNSUPPORTED_OP     ,
@@ -420,7 +424,7 @@ typedef enum IMU_STATUS
     IMU_MAG_UNRECOGNIZED_ID,
     IMU_MAG_INIT_FAIL      ,
     IMU_BUSY
-	} IMU_STATUS;
+    } IMU_STATUS;
 
 
 /*------------------------------------------------------------------------------
@@ -436,6 +440,7 @@ IMU_STATUS imu_init
 /**
  * @brief  Blocking read of accelerometer X/Y/Z.
  * @param  pIMU: Destination struct for the accel readout.
+ * @return IMU_STATUS
  */
 IMU_STATUS imu_get_accel_xyz
     (
@@ -445,6 +450,7 @@ IMU_STATUS imu_get_accel_xyz
 /**
  * @brief  Blocking read of gyroscope X/Y/Z.
  * @param  pIMU: Destination struct for the gyro readout.
+ * @return IMU_STATUS
  */
 IMU_STATUS imu_get_gyro_xyz
     (
@@ -454,6 +460,7 @@ IMU_STATUS imu_get_gyro_xyz
 /**
  * @brief  Blocking read of accelerometer and gyroscope X/Y/Z in one burst.
  * @param  pIMU: Destination struct for the accel + gyro readout.
+ * @return IMU_STATUS
  */
 IMU_STATUS imu_get_accel_and_gyro
     (
@@ -463,6 +470,7 @@ IMU_STATUS imu_get_accel_and_gyro
 /**
  * @brief  Blocking read of magnetometer X/Y/Z.
  * @param  pIMU: Destination struct for the magnetometer readout.
+ * @return IMU_STATUS
  */
 IMU_STATUS imu_get_mag_xyz
     (
@@ -472,6 +480,7 @@ IMU_STATUS imu_get_mag_xyz
 /**
  * @brief  Reads and verifies the IMU's CHIP_ID register.
  * @param  pdevice_id: Destination for the returned device ID.
+ * @return IMU_STATUS
  */
 IMU_STATUS imu_get_device_id
     (
@@ -500,19 +509,33 @@ bool imu_get_mag_data_ready
     );
 
 /** @brief Triggers an interrupt-mode (non-blocking) accel + gyro read       */
-IMU_STATUS start_imu_read_IT(void);
+IMU_STATUS start_imu_read_IT
+    (
+    void
+    );
 
 /** @brief Interrupt handler - call on I2C memory-rx complete interrupt      */
-IMU_STATUS imu_it_handler();
+IMU_STATUS imu_it_handler
+    (
+    void
+    );
 
 /**
  * @brief  Consumer - retrieves the latest interrupt-mode accel/gyro/mag data.
  * @param  cpy_ptr: Destination struct for the copied sensor readout.
+ * @return IMU_STATUS: IMU_BUSY until both imu_data_ready and mag_data_ready
+ *         are set by imu_it_handler().
  */
-IMU_STATUS get_imu_it(IMU_RAW* cpy_ptr);
+IMU_STATUS get_imu_it
+    (
+    IMU_RAW* cpy_ptr
+    );
 
 /** @brief Getter function for the magnetometer trim coefficients            */
-MAG_TRIM imu_get_mag_trim();
+MAG_TRIM imu_get_mag_trim
+    (
+    void
+    );
 
 #ifdef __cplusplus
 }

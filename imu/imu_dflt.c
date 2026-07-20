@@ -28,9 +28,13 @@
 
     #include "imu_lsm.h"
 
-    IMU_SYS_STATUS imu_system_init(void)
+    IMU_SYS_STATUS imu_system_init
+        (
+        void
+        )
     {
-        IMU_CONFIG config = {
+        IMU_CONFIG config = 
+            {
             .odr         = IMU_ODR_1920HZ,
             .acc_fs      = IMU_ACC_FS_16G,
             .gyro_fs     = IMU_GYRO_FS_2000DPS,
@@ -38,29 +42,35 @@
             .gyro_mode   = IMU_GYRO_MODE_HP,
             .sflp_enable = true,
             .fifo_enable = true
-        };
+            };
 
-        if (imu_init(&config) != IMU_OK) {
+        if ( imu_init( &config ) != IMU_OK ) 
+            {
             return IMU_SYS_INIT_FAIL;
-        }
+            }
         return IMU_SYS_OK;
     }
 
-    IMU_SYS_STATUS imu_system_update(IMU_FlightData* out)
+    IMU_SYS_STATUS imu_system_update
+        (
+        IMU_FlightData* out
+        )
     {
-        if (!imu_has_new_data()) {
+        if ( !imu_has_new_data() ) 
+            {
             return IMU_SYS_BUSY;
-        }
+            }
 
         IMU_RAW raw;
         IMU_SFLP_DATA sflp;
         
-        if (imu_get_latest(&raw, &sflp) != IMU_OK) {
+        if ( imu_get_latest( &raw, &sflp ) != IMU_OK ) 
+            {
             return IMU_SYS_FAIL;
-        }
+            }
 
         IMU_DATA physical;
-        imu_scale_raw(&raw, &physical);
+        imu_scale_raw( &raw, &physical );
 
         /* imu_lsm.c reports accel in m/s^2 & gyro in dps */
         out->accel[0] = physical.accel_x;
@@ -95,17 +105,17 @@
          void HAL_SPI_TxRxCpltCallback( SPI_HandleTypeDef* hspi )
          {
              if ( hspi == &IMU_SPI )
-            {
-                 imu_process_async_cb();
-             }
+                {
+                imu_process_async_cb();
+                }
          }
 
          void HAL_SPI_ErrorCallback( SPI_HandleTypeDef* hspi )
          {
              if ( hspi == &IMU_SPI )
-             {
-                 imu_process_async_error_cb();
-             }
+                {
+                imu_process_async_error_cb();
+                }
          }
     */
 
@@ -114,12 +124,16 @@
     #include "imu_legacy.h"
     #include "math_sdr.h"
 
-    #define LEGACY_ACCEL_SCALE   (16.0f / 32768.0f)   /* raw -> g   */
-    #define LEGACY_GYRO_SCALE    (2000.0f / 32768.0f) /* raw -> dps */
+    #define LEGACY_ACCEL_SCALE   ( 16.0f / 32768.0f )   /* raw -> g   */
+    #define LEGACY_GYRO_SCALE    ( 2000.0f / 32768.0f ) /* raw -> dps */
 
-    IMU_SYS_STATUS imu_system_init(void)
+    IMU_SYS_STATUS imu_system_init
+        (
+        void
+        )
     {
-        IMU_CONFIG config = {
+        IMU_CONFIG config = 
+            {
             .sensor_enable    = IMU_ENABLE_GYRO_ACC_TEMP,
             .acc_odr          = IMU_ODR_100,
             .gyro_odr         = IMU_ODR_100,
@@ -130,31 +144,37 @@
             .acc_range        = IMU_ACC_RANGE_16G,
             .gyro_range       = IMU_GYRO_RANGE_2000,
             .mag_op_mode      = MAG_SLEEP_MODE
-        };
+            };
 
-        if (imu_init(&config) != IMU_OK) {
+        if ( imu_init( &config ) != IMU_OK ) 
+            {
             return IMU_SYS_INIT_FAIL;
-        }
+            }
         return IMU_SYS_OK;
     }
 
-    IMU_SYS_STATUS imu_system_update(IMU_FlightData* out)
+    IMU_SYS_STATUS imu_system_update
+        (
+        IMU_FlightData* out
+        )
     {
         IMU_RAW raw;
         IMU_STATUS status;
 
         #ifdef A0002_REV2
-            status = imu_get_accel_and_gyro(&raw);
+            status = imu_get_accel_and_gyro( &raw );
         #else
-            status = imu_get_accel_xyz(&raw);
-            if (status == IMU_OK) {
-                status = imu_get_gyro_xyz(&raw);
-            }
+            status = imu_get_accel_xyz( &raw );
+            if ( status == IMU_OK ) 
+                {
+                status = imu_get_gyro_xyz( &raw );
+                }
         #endif
 
-        if (status != IMU_OK) {
+        if ( status != IMU_OK ) 
+            {
             return IMU_SYS_FAIL;
-        }
+            }
 
         /* Legacy driver reports accel in [g] - scale up to the unified
            contract's SI [m/s^2]. Gyro is already [dps] */

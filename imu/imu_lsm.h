@@ -339,7 +339,7 @@ typedef enum _IMU_LSM_STATUS
  * @note   Performs SW reset, applies loop-coupled ODR / FS settings.
  *         Configures the PID facade and sets up Register Bank routing for SFLP.
  * @param  config: Pointer to user configuration struct.
- * @retval IMU_LSM_STATUS
+ * @return IMU_LSM_STATUS
  */
 IMU_LSM_STATUS imu_init
     (
@@ -353,7 +353,7 @@ IMU_LSM_STATUS imu_init
  *         CTRL1_XL_HG / CTRL8, and enforces HP mode constraint (§6.1.2).
  *         No sensor reset required.
  * @param  new_fs: Target full-scale range.
- * @retval IMU_LSM_STATUS
+ * @return IMU_LSM_STATUS
  */
 IMU_LSM_STATUS imu_set_accel_fs
     (
@@ -363,7 +363,7 @@ IMU_LSM_STATUS imu_set_accel_fs
 /** 
  * @brief  Mid-flight Gyroscope Full-Scale transition (Runtime).
  * @param  new_fs: Target full-scale range.
- * @retval IMU_LSM_STATUS
+ * @return IMU_LSM_STATUS
  */
 IMU_LSM_STATUS imu_set_gyro_fs
     (
@@ -374,7 +374,7 @@ IMU_LSM_STATUS imu_set_gyro_fs
  * @brief  Changes accel and gyro operating mode at runtime (no reset).
  * @param  acc_mode:  Target accel power mode.
  * @param  gyro_mode: Target gyro power mode.
- * @retval IMU_LSM_STATUS
+ * @return IMU_LSM_STATUS
  */
 IMU_LSM_STATUS imu_set_power_mode
     (
@@ -389,7 +389,7 @@ IMU_LSM_STATUS imu_set_power_mode
  * @brief  Polled read of raw Accel + Gyro.
  * @note   Intended for pre-flight BIT and terminal sensor dump.
  * @param  raw: Pointer to raw counts buffer.
- * @retval IMU_LSM_STATUS
+ * @return IMU_LSM_STATUS
  */
 IMU_LSM_STATUS imu_read_sync
     (
@@ -400,7 +400,7 @@ IMU_LSM_STATUS imu_read_sync
  * @brief  Blocking SFLP/Quaternion retrieval.
  * @note   Handles internal ST bank-switching logic. Used for BIT/Debug.
  * @param  sflp: Pointer to SFLP output struct.
- * @retval IMU_LSM_STATUS
+ * @return IMU_LSM_STATUS
  */
 IMU_LSM_STATUS imu_read_sflp_sync
     (
@@ -414,7 +414,7 @@ IMU_LSM_STATUS imu_read_sflp_sync
  * @brief  Triggers an SPI DMA read of the IMU FIFO.
  * @note   Offloads the SPI transfer to meet flight loop timing.
  *         Must be called after INT1 assertions (FIFO watermark).
- * @retval IMU_LSM_STATUS: IMU_OK, IMU_BUSY, or IMU_NO_DATA.
+ * @return IMU_LSM_STATUS: IMU_OK, IMU_BUSY, or IMU_NO_DATA.
  */
 IMU_LSM_STATUS imu_request_async
     (
@@ -445,7 +445,7 @@ void imu_process_async_error_cb
 
 /** 
  * @brief  Polls the internal driver state to see if the DMA burst is complete. 
- * @retval bool: true if ready to be consumed.
+ * @return bool: true if ready to be consumed.
  */
 bool imu_has_new_data
     (
@@ -458,7 +458,7 @@ bool imu_has_new_data
  *         math out of interrupt]
  * @param  raw:  Pointer to raw counts buffer (may be NULL).
  * @param  sflp: Pointer to quaternion/fusion buffer (may be NULL).
- * @retval IMU_LSM_STATUS: IMU_OK or IMU_BUSY.
+ * @return IMU_LSM_STATUS: IMU_OK or IMU_BUSY.
  */
 IMU_LSM_STATUS imu_get_latest
     (
