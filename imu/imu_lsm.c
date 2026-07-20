@@ -553,6 +553,12 @@ IMU_ASSERT( config != NULL );
 /*--------------------------------------------------------------------------
  Initializations
 --------------------------------------------------------------------------*/
+
+/* Re-initialization protection: abort pending DMA and release CS to ensure a clean start. */
+HAL_SPI_Abort( &IMU_SPI );
+__NOP(); __NOP();
+HAL_GPIO_WritePin( IMU_NSS_GPIO_PORT, IMU_NSS_PIN, GPIO_PIN_SET );
+
 imu_sflp_enabled    = false;
 imu_dma_ready       = false;
 imu_dma_busy        = false;
@@ -574,9 +580,8 @@ imu_ctx.handle    = NULL;
  Implementation
 --------------------------------------------------------------------------*/
 
-/* Disable INT1 EXTI to prevent accidental ISR triggers during init.
-   INT1 is routed to EXTI4 (PC4 = IMU_INT1_PIN). */
-HAL_NVIC_DisableIRQ( EXTI4_IRQn );
+/* Disable INT1 EXTI to prevent accidental ISR triggers during init. */
+HAL_NVIC_DisableIRQ( IMU_INT1_EXTI_IRQn );
 
 /* SW reset: all control registers restored to datasheet defaults.
    lsm6dsv320x_sw_reset() polls until SW_RESET self-clears (up to 3 ms).
@@ -868,7 +873,7 @@ if ( config->fifo_enable ) {
     if ( pid_status != 0 ) { return IMU_CONFIG_FAIL; }
 }
 
-HAL_NVIC_EnableIRQ( EXTI4_IRQn );
+HAL_NVIC_EnableIRQ( IMU_INT1_EXTI_IRQn );
 
 return IMU_OK;
 } /* imu_init */
