@@ -121,7 +121,7 @@ static void update_state
 
 /* TODO
  * - write baro_init and its helpers
- * - write get_baro_it (this is where the buffers will be converted to
+ * - write baro_get_it (this is where the buffers will be converted to
  *   usable values and calculations applied to return the final float)
  * - write the timer interrupt creation functions
  */
@@ -152,7 +152,7 @@ return baro_read_state == BARO_READ_DONE;
   *
   * @retval Status of the barometer
   */
-BARO_STATUS start_baro_read_IT
+BARO_STATUS baro_start_read_IT
     (
     void
     )
@@ -189,7 +189,7 @@ BARO_STATUS baro_IT_handler
 switch(baro_read_state) {
     // TODO actually deal with chip select pin
     case BARO_CONV_PRESSURE:
-        // 1. Called by start_baro_read_IT, start pressure conversion
+        // 1. Called by baro_start_read_IT, start pressure conversion
         success = transmit_cmd_IT(pressure_cmd);
         update_state(BARO_WAIT_PRESSURE);
         break;

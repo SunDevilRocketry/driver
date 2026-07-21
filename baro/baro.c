@@ -890,13 +890,13 @@ return baro_data_ready;
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   * 
-* 		start_baro_read_IT                                                	   *
+* 		baro_start_read_IT                                                	   *
 *                                                                              *
 * DESCRIPTION:                                                                 * 
 * 		Receive baro data in interrupt mode.	                               *
 *                                                                              *
 *******************************************************************************/
-BARO_STATUS start_baro_read_IT
+BARO_STATUS baro_start_read_IT
 	(
 	void
 	)
@@ -940,7 +940,7 @@ else
 	return baro_status;
 	}
 
-} /* start_baro_read_IT */
+} /* baro_start_read_IT */
 
 
 /*******************************************************************************
@@ -950,7 +950,7 @@ else
 *                                                                              *
 * DESCRIPTION:                                                                 * 
 * 		ISR for baro data reception. Heavy ISR.	Consider moving processing to  *
-*		get_baro_IT.								                           *
+*		baro_get_it.								                           *
 *                                                                              *
 *******************************************************************************/
 BARO_STATUS baro_IT_handler
@@ -1003,13 +1003,13 @@ return baro_status;
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   * 
-* 		get_baro_it                   		                               	   *
+* 		baro_get_it                   		                               	   *
 *                                                                              *
 * DESCRIPTION:                                                                 * 
 * 		Getter function for IT baro data.				                       *
 *                                                                              *
 *******************************************************************************/
-BARO_STATUS get_baro_it
+BARO_STATUS baro_get_it
 	(
 	float* pres_ptr, /* o: pressure */
 	float* temp_ptr  /* o: temperature */
@@ -1024,7 +1024,7 @@ if( !baro_data_ready )
 *temp_ptr = baro_temp_proc;
 
 return BARO_OK;
-} /* get_baro_it */
+} /* baro_get_it */
 
 
 /*******************************************************************************
