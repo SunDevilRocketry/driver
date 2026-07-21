@@ -950,7 +950,7 @@ else
 *                                                                              *
 * DESCRIPTION:                                                                 * 
 * 		ISR for baro data reception. Heavy ISR.	Consider moving processing to  *
-*		baro_get_it.								                           *
+*		baro_get_IT.								                           *
 *                                                                              *
 *******************************************************************************/
 BARO_STATUS baro_IT_handler
@@ -1003,13 +1003,13 @@ return baro_status;
 /*******************************************************************************
 *                                                                              *
 * PROCEDURE:                                                                   * 
-* 		baro_get_it                   		                               	   *
+* 		baro_get_IT                   		                               	   *
 *                                                                              *
 * DESCRIPTION:                                                                 * 
 * 		Getter function for IT baro data.				                       *
 *                                                                              *
 *******************************************************************************/
-BARO_STATUS baro_get_it
+BARO_STATUS baro_get_IT
 	(
 	float* pres_ptr, /* o: pressure */
 	float* temp_ptr  /* o: temperature */
@@ -1024,7 +1024,7 @@ if( !baro_data_ready )
 *temp_ptr = baro_temp_proc;
 
 return BARO_OK;
-} /* baro_get_it */
+} /* baro_get_IT */
 
 
 /*******************************************************************************

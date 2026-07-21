@@ -121,7 +121,7 @@ static void update_state
 
 /* TODO
  * - write baro_init and its helpers
- * - write baro_get_it (this is where the buffers will be converted to
+ * - write baro_get_IT (this is where the buffers will be converted to
  *   usable values and calculations applied to return the final float)
  * - write the timer interrupt creation functions
  */

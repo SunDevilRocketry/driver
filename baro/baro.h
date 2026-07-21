@@ -345,7 +345,7 @@ bool baro_get_baro_data_ready
 
 BARO_STATUS baro_start_read_IT();
 BARO_STATUS baro_IT_handler();
-BARO_STATUS baro_get_it(float* pres_ptr, float* temp_ptr);
+BARO_STATUS baro_get_IT(float* pres_ptr, float* temp_ptr);
 
 
 #ifdef __cplusplus
