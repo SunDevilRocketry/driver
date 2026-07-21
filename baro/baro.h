@@ -193,7 +193,7 @@ typedef enum _BARO_ODR_SETTING
 	BARO_ODR_25_16HZ  ,
 	BARO_ODR_25_32HZ
 	} BARO_ODR_SETTING;
-	
+
 /* IIR Filter coefficient selection */
 typedef enum _BARO_IIR_SETTING
 	{
