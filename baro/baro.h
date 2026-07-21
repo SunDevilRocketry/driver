@@ -214,11 +214,6 @@ typedef struct _BARO_CONFIG
 	/* Sensor enables */
 	BARO_SENSOR_ENABLES enable;
 
-	#ifdef A0002_REV2
-	/* Operating mode */
-	BARO_MODE mode;
-	#endif
-
 	/* Pressure Oversampling setting  */
 	BARO_PRESS_OSR_SETTING press_OSR_setting;
 
@@ -226,6 +221,9 @@ typedef struct _BARO_CONFIG
 	BARO_TEMP_OSR_SETTING temp_OSR_setting;
 
 	#ifdef A0002_REV2
+	/* Operating mode */
+	BARO_MODE mode;
+	
 	/* Sampling frequency */
 	BARO_ODR_SETTING ODR_setting;
 
