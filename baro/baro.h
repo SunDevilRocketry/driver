@@ -126,6 +126,22 @@ typedef enum _BARO_SENSOR_ENABLES
 	BARO_PRESS_TEMP_ENABLED = 3
 	} BARO_SENSOR_ENABLES;
 
+#ifdef A0010
+/* Interrupt events for R3 version of driver.
+ * Takes similar approach to telemetry in mod.
+ * Events are in order of when they occure.
+ * Some events occur multiple times per 
+ * data acquisition cycle.
+ */
+typedef enum _BARO_EVENT 
+    {
+    BARO_EVENT_START_READ = 0,
+    BARO_EVENT_TX_CPLT,
+    BARO_EVENT_DELAY_ELAPSED,
+    BARO_EVENT_TXRX_CPLT
+    } BARO_EVENT;
+#endif
+
 #ifdef A0002_REV2
 /* Operating mode of baro sensor */
 typedef enum _BARO_MODE
@@ -343,9 +359,33 @@ bool baro_get_baro_data_ready
     void 
     );
 
-BARO_STATUS baro_start_read_IT();
-BARO_STATUS baro_IT_handler();
-BARO_STATUS baro_get_IT(float* pres_ptr, float* temp_ptr);
+BARO_STATUS baro_start_read_IT
+    (
+    void
+    );
+BARO_STATUS baro_get_IT
+    (
+    float* pres_ptr,
+    float* temp_ptr
+    );
+
+#ifdef A0002_REV2
+BARO_STATUS baro_IT_handler
+    (
+    void
+    );
+#endif
+#ifdef A0010
+/* R3 baro has more complicated data acquisition sequence.
+ * We thus need to prevent various race conditions;
+ * this required making a breaking API change.
+ * The approach is very similar to the telemetry module.
+ */
+BARO_STATUS baro_IT_handler
+    (
+    BARO_EVENT update_cause;
+    );
+#endif
 
 
 #ifdef __cplusplus
