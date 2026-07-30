@@ -58,6 +58,8 @@
 /*------------------------------------------------------------------------------
 Global Variables                                                                  
 ------------------------------------------------------------------------------*/
+GPS_DATA gps_last_valid_rmc_data;
+GPS_DATA gps_last_valid_gll_data;
 
 /*------------------------------------------------------------------------------
  Procedures 
@@ -329,6 +331,17 @@ else if (!strcmp(token, "$GPRMC"))
         gps_ptr->course_d = course_d;
         gps_ptr->date = date;
         gps_conv_latitude_longitude( gps_ptr );
+
+        /* Update last valid data */
+        gps_last_valid_rmc_data = *gps_ptr;
+        }
+    /* Discard new data, use last valid data instead if the status is V: Void */
+    else if (rmc_status == 'V')
+        {
+        *gps_ptr = gps_last_valid_rmc_data;
+
+        /* Re-save rmc_status since the previous statement may override it */
+        gps_ptr->rmc_status = rmc_status;
         }
     }
 else if (!strcmp(token, "$GPGLL")) 
@@ -353,8 +366,19 @@ else if (!strcmp(token, "$GPGLL"))
         gps_ptr->ew = ew;
         gps_ptr->utc_time = utc_time;
         gps_conv_latitude_longitude( gps_ptr );
+
+        gps_last_valid_gll_data = *gps_ptr;
+        }
+    else if (gll_status == 'V')
+        {
+            *gps_ptr = gps_last_valid_gll_data;
+
+            /* Resave gll status since the previous statement may override it */
+            gps_ptr->gll_status = gll_status;
         }
     }
+    
+
 else if (!strcmp(token, "$GPVTG")) 
     {
     gps_ptr->course_t = gps_string_to_float(GPSstrParse, &idx);
