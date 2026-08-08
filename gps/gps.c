@@ -58,8 +58,12 @@
 /*------------------------------------------------------------------------------
 Global Variables                                                                  
 ------------------------------------------------------------------------------*/
-GPS_DATA gps_last_valid_rmc_data;
-GPS_DATA gps_last_valid_gll_data;
+
+/*------------------------------------------------------------------------------
+ Local Variables
+------------------------------------------------------------------------------*/
+static GPS_DATA gps_last_valid_rmc_data;
+static GPS_DATA gps_last_valid_gll_data;
 
 /*------------------------------------------------------------------------------
  Procedures 
@@ -282,11 +286,17 @@ int gps_mesg_validate(char *nmeastr){
 *                                                                              *
 *******************************************************************************/
 void GPS_parse(GPS_DATA* gps_ptr, char *GPSstrParse){
+
+
+
+
 /* Get message type */
 char token[8]; // Needs to be 8 chars for memory alignment
 strncpy(token, GPSstrParse, 6);
 token[6] = '\0';
 int idx = 7; /* Skips "$GPXXX,"*/
+
+
 
 /* Parse by message type */
 if (!strcmp(token, "$GPGGA")) 
@@ -320,7 +330,7 @@ else if (!strcmp(token, "$GPRMC"))
     gps_ptr->rmc_status = rmc_status;
     
     /* Save rest of data only if status is A: Active */
-    if (rmc_status == 'A')
+    if ( rmc_status == 'A' )
         {
         gps_ptr->utc_time = utc_time;
         gps_ptr->nmea_latitude = nmea_latitude;
@@ -336,7 +346,7 @@ else if (!strcmp(token, "$GPRMC"))
         gps_last_valid_rmc_data = *gps_ptr;
         }
     /* Discard new data, use last valid data instead if the status is V: Void */
-    else if (rmc_status == 'V')
+    else if ( rmc_status == 'V' )
         {
         *gps_ptr = gps_last_valid_rmc_data;
 
@@ -371,10 +381,10 @@ else if (!strcmp(token, "$GPGLL"))
         }
     else if (gll_status == 'V')
         {
-            *gps_ptr = gps_last_valid_gll_data;
+        *gps_ptr = gps_last_valid_gll_data;
 
-            /* Resave gll status since the previous statement may override it */
-            gps_ptr->gll_status = gll_status;
+        /* Resave gll status since the previous statement may override it */
+        gps_ptr->gll_status = gll_status;
         }
     }
     
