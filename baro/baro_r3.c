@@ -28,6 +28,7 @@
 #include "stm32h7xx_hal.h"
 #include "sdr_pin_defines_A0010.h"
 #include "baro.h"
+#include "debug_sdr.h"
 
 /* Type Definitions ----------------------------------------------------------*/
 
@@ -126,6 +127,88 @@ static void update_state
  *   usable values and calculations applied to return the final float)
  * - write the timer interrupt creation functions
  */
+
+/**
+ * @brief Initialize barometric pressure sensor
+ * 
+ * @details Load pre-calculated command values into their static variables,
+ * calculate necessary sensor timeouts, and get calibration data.
+ * 
+ * @retval Barometer status
+ */
+BARO_STATUS baro_init
+    (
+    BARO_CONFIG *config_ptr
+    )
+{
+/* Setup the global configuration */
+baro_configuration.enable |= config_ptr->enable;
+baro_configuration.press_OSR_setting |= config_ptr->press_OSR_setting;
+baro_configuration.temp_OSR_setting |= config_ptr->temp_OSR_setting;
+
+/* Pre-calculate static command values */
+switch(baro_configuration.press_OSR_setting)
+    {
+    case BARO_PRESS_OSR_X256:
+        pressure_cmd = 0x40;
+        pressure_timeout = 600;
+        break;
+    case BARO_PRESS_OSR_X512:
+        pressure_cmd = 0x42;
+        pressure_timeout = 1170;
+        break;
+    case BARO_PRESS_OSR_X1024:
+        pressure_cmd = 0x44;
+        pressure_timeout = 2280;
+        break;
+    case BARO_PRESS_OSR_X2048:
+        pressure_cmd = 0x46;
+        pressure_timeout = 4540;
+        break;
+    case BARO_PRESS_OSR_X4096:
+        pressure_cmd = 0x48;
+        pressure_timeout = 9040;
+        break;
+    default:
+        /* An invalid enum value has been used */
+        /* This should be unreachable under correct usage */
+        debug_assert(false, ERROR_BARO_INIT_ERROR);
+        return BARO_FAIL;
+    }
+
+switch(baro_configuration.temp_OSR_setting)
+    {
+    case BARO_TEMP_OSR_X256:
+        temperature_cmd = 0x50;
+        temperature_timeout = 600;
+        break;
+    case BARO_TEMP_OSR_X512:
+        temperature_cmd = 0x52;
+        temperature_timeout = 1170;
+        break;
+    case BARO_TEMP_OSR_X1024:
+        temperature_cmd = 0x54;
+        temperature_timeout = 2280;
+        break;
+    case BARO_TEMP_OSR_X2048:
+        temperature_cmd = 0x56;
+        temperature_timeout = 4540;
+        break;
+    case BARO_TEMP_OSR_X4096:
+        temperature_cmd = 0x58;
+        temperature_timeout = 9040;
+        break;
+    default:
+        /* An invalid enum value has been used */
+        /* This should be unreachable under correct usage */
+        debug_assert(false, ERROR_BARO_INIT_ERROR);
+        return BARO_FAIL;
+    }
+
+    // TODO add calibration data acquisition
+    
+    return BARO_OK;
+}
 
 /**
   * @brief Check if barometer data is ready
