@@ -119,6 +119,8 @@ static void update_state
     BARO_READ_STATE next_state
     );
 
+static BARO_STATUS crc_verify();
+
 /* Procedures ----------------------------------------------------------------*/
 
 /* TODO
@@ -130,10 +132,10 @@ static void update_state
 
 /**
  * @brief Initialize barometric pressure sensor
- * 
+ *
  * @details Load pre-calculated command values into their static variables,
  * calculate necessary sensor timeouts, and get calibration data.
- * 
+ *
  * @retval Barometer status
  */
 BARO_STATUS baro_init
@@ -141,6 +143,13 @@ BARO_STATUS baro_init
     BARO_CONFIG *config_ptr
     )
 {
+/* Run PROM verification */
+BARO_STATUS crc_check = crc_verify();
+
+if( crc_check == BARO_INVALID_PROM ) {
+    return crc_check;
+}
+
 /* Setup the global configuration */
 baro_configuration.enable |= config_ptr->enable;
 baro_configuration.press_OSR_setting |= config_ptr->press_OSR_setting;
@@ -182,7 +191,7 @@ switch(baro_configuration.temp_OSR_setting)
         temperature_cmd = 0x50;
         temperature_timeout = 600;
         break;
-    case BARO_TEMP_OSR_X512:
+        case BARO_TEMP_OSR_X512:
         temperature_cmd = 0x52;
         temperature_timeout = 1170;
         break;
@@ -205,8 +214,38 @@ switch(baro_configuration.temp_OSR_setting)
         return BARO_FAIL;
     }
 
-    // TODO add calibration data acquisition
-    
+    /* Acquire calibration coefficients
+     I loop through the PROM indicies of each calibration coefficient and save
+     it to a buffer */
+    uint16_t coeffs[6];
+
+    HAL_StatusTypeDef read_success;
+
+    for( int coeff = 1; coeff < 6; coeff += 1 ) {
+        /* The first byte is the calculated PROM read command, and second is filler byte */
+        uint8_t transmit_buffer[2] = {0xA0 + coeff << 1, 0xFF};
+        uint8_t recieive_buffer[2];
+
+        /* Do the read */
+        // TODO do more proper timeout
+        read_success = HAL_SPI_TransmitReceive(BARO_SPI, transmit_buffer, recieive_buffer, 2, 2000);
+
+        if( read_success != HAL_OK ) {
+            return BARO_FAIL; /* SPI communication failure */
+        }
+
+        /* Turn it into a usable format */
+        coeffs[coeff - 1] = receive_buffer[0] << 8 + receive_buffer[1];
+    }
+
+    /* Set the calibration coefficients */
+    baro_cal_data.par_c1 = coeffs[0];
+    baro_cal_data.par_c2 = coeffs[1];
+    baro_cal_data.par_c3 = coeffs[2];
+    baro_cal_data.par_c4 = coeffs[3];
+    baro_cal_data.par_c5 = coeffs[4];
+    baro_cal_data.par_c6 = coeffs[5];
+
     return BARO_OK;
 }
 
