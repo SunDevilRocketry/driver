@@ -668,8 +668,10 @@ memcpy( lora_dma_tx_buf, buffer_ptr, buffer_len );
 
 /* Clean (flush) the TX buffer so the DMA peripheral reads what was just
    written. */
+#ifndef EMULATOR
 SCB_CleanDCache_by_Addr( (uint32_t*)lora_dma_tx_buf,
                           (int32_t)LORA_DMA_BUF_BYTES_ALIGNED );
+#endif
 
 HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
 
@@ -717,8 +719,10 @@ HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
 if ( lora_dma_pending_op == LORA_DMA_OP_RX )
     {
     /* Invalidate before touching lora_dma_rx_buf */
+    #ifndef EMULATOR
     SCB_InvalidateDCache_by_Addr( (uint32_t*)lora_dma_rx_buf[ lora_dma_fill_idx ],
                                    (int32_t)LORA_DMA_BUF_BYTES_ALIGNED );
+    #endif
 
     /* fill_idx becomes the ready row. Consumer (lora_get_latest()) reads 
        ready_idx/lora_dma_ready */
@@ -932,8 +936,10 @@ lora_dma_rx_bytes[ lora_dma_fill_idx ] = rx_num_bytes;
 /* Dummy TX bytes to clock the SPI during the full-duplex receive - the
    real address byte was already sent (polling) below. */
 memset( lora_dma_tx_buf, 0x00U, rx_num_bytes );
+#ifndef EMULATOR
 SCB_CleanDCache_by_Addr( (uint32_t*)lora_dma_tx_buf,
                           (int32_t)LORA_DMA_BUF_BYTES_ALIGNED );
+#endif
 
 HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
 
