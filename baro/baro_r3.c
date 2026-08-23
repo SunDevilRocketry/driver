@@ -227,11 +227,11 @@ switch(baro_configuration.temp_OSR_setting)
     for( int coeff = 1; coeff < 6; coeff += 1 ) {
         /* The first byte is the calculated PROM read command, and second is filler byte */
         uint8_t transmit_buffer[2] = {0xA0 + coeff << 1, 0xFF};
-        uint8_t recieive_buffer[2];
+        uint8_t receive_buffer[2];
 
         /* Do the read */
         // TODO do more proper timeout
-        read_success = HAL_SPI_TransmitReceive(BARO_SPI, transmit_buffer, recieive_buffer, 2, 2000);
+        read_success = HAL_SPI_TransmitReceive(BARO_SPI, transmit_buffer, receive_buffer, 2, 2000);
 
         if( read_success != HAL_OK ) {
             return BARO_FAIL; /* SPI communication failure */
@@ -480,7 +480,7 @@ if( success == HAL_OK ){
 }
 
 /**
- * @brief Moved to requested state if no fail conditions are detected
+ * @brief Move to requested state if no fail conditions are detected
  *
  * @param next_state The baro read state to switch to.
  */
@@ -497,4 +497,66 @@ else
     {
     baro_read_state = BARO_READ_FAIL;
     }
+}
+
+/**
+ * @brief Verify the intregrity of the barometer's internal PROM
+ *
+ * @retval PROM validity status
+ */
+static void crc_verify
+    (
+    void
+    )
+{
+/* Read the PROM */
+uint16_t prom[8];
+for ( int addr = 0; addr < 8; addr++ ) {
+    uint8_t transmit_buffer[2] = {0xA0 + addr << 1, 0xFF};
+    uint8_t receive_buffer[2];
+
+    HAL_SPI_TransmitReceive(BARO_SPI, transmit_buffer, receive_buffer, 2, 2000);
+
+    /* Concatenate buffer result and put it into the prom array */
+    prom[addr] = ( receive_buffer[0] << 8 ) + receive_buffer[1];
+}
+
+/* Go through the CRC verification process
+ * This is heavily inspired by TE Connectivity/Measurement Specialites
+ * Application Note 520, with changes made to better match SDR conventions.
+ */
+uint16_t remainder = 0x00;
+
+/* The expected 4 bit CRC result */
+uint16_t expected = prom[7] & 0x000F;
+
+/* According to datasheet, the last byte must be zeroed out during
+ * these calculations. */
+prom[7] &= 0xFF00;
+
+/* Loop through the bytes of the PROM */
+for( int i = 0; i < 16; i++ ) {
+	if( i % 2 == 1 ) { /* Select first or second byte of uint16_t */
+		remainder ^= (prom[i >> 1]) & 0x00FF;
+	} else {
+		remainder ^= prom[i >> 1] >> 8;
+	}
+	for( int bit = 8; bit > 0; bit-- ) {
+		if( remainder & 0x8000 ) {
+			remainder = (remainder << 1) ^ 0x3000;
+		} else {
+			remainder = (remainder << 1);
+		}
+	}
+}
+
+/* Get final remainder */
+remainder = (0x000F & (remainder >> 12)) ^ 0x00;
+
+/* Compare remainder with expected to get return value */
+if( remainder == expected ) {
+    return BARO_OK;
+} else {
+    return BARO_INVALID_PROM;
+}
 }
