@@ -1,23 +1,31 @@
-/*******************************************************************************
-*
-* FILE: 
-* 		imu.c
-*
-* DESCRIPTION: 
-* 		Contains API functions to access data from the IMU MPU9250
-*
-* COPYRIGHT:                                                                   
-*       Copyright (c) 2025 Sun Devil Rocketry.                                 
-*       All rights reserved.                                                   
-*                                                                              
-*       This software is licensed under terms that can be found in the LICENSE 
-*       file in the root directory of this software component.                 
-*       If no LICENSE file comes with this software, it is covered under the   
-*       BSD-3-Clause.                                                          
-*                                                                              
-*       https://opensource.org/license/bsd-3-clause          
-*
-*******************************************************************************/
+/**
+  ******************************************************************************
+  * @file           : imu_legacy.c
+  * @brief          : BMI270/BMM150 IMU Driver Implementation (A0002 Rev2)
+  * @author         : Sun Devil Rocketry Firmware Team
+  *
+  * @note  Two data-retrieval paths are provided:
+  *          - Blocking: imu_get_accel_xyz() / imu_get_gyro_xyz() /
+  *            imu_get_accel_and_gyro() / imu_get_mag_xyz() poll the I2C bus
+  *            directly and return once the transfer completes.
+  *          - Interrupt-mode: start_imu_read_IT() kicks off a non-blocking
+  *            I2C read; imu_it_handler() (called from the I2C memory-rx ISR)
+  *            chains the accel/gyro read into a magnetometer read and marks
+  *            the result ready; get_imu_it() is the non-blocking consumer.
+  *
+  ******************************************************************************
+  * @attention
+  * Copyright (c) 2026 Sun Devil Rocketry. All rights reserved.
+  * This software is licensed under terms that can be found in the LICENSE
+  * file in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is covered under the
+  * BSD-3-Clause (https://opensource.org/license/bsd-3-clause).
+  ******************************************************************************
+  */
+
+#if defined( A0002_REV1 )
+    #error "A0002_REV1 support has been removed."
+#endif
 
 
 /*------------------------------------------------------------------------------
@@ -31,7 +39,7 @@
 ------------------------------------------------------------------------------*/
 #include "main.h"
 #include "sdr_pin_defines_A0002.h"
-#include "imu.h"
+#include "imu_legacy.h"
 
 #include <math.h>
 
@@ -39,41 +47,41 @@
  Global Variables 
 ------------------------------------------------------------------------------*/
 
-/* BMI270 Initialization File */
-#ifdef A0002_REV2
-    uint8_t bmi270_init_file[] = {
-        #include "bmi270_init_file.tbin"
-    };
-#endif
+/** @brief BMI270 configuration, loaded into the device during imu_init() */
+uint8_t bmi270_init_file[] = {
+    #include "bmi270_init_file.tbin"
+};
 
 /*------------------------------------------------------------------------------
  Local Variables 
 ------------------------------------------------------------------------------*/
 
-#if defined( A0002_REV2 )
+/** @brief Raw double-buffer target for interrupt-mode accel/gyro reads       */
 uint8_t imu_raw_buffer[12];
+/** @brief Parsed interrupt-mode accel/gyro/mag sample, published by imu_it_handler() */
 IMU_RAW imu_raw_processed;
+/** @brief Set true by imu_it_handler() once imu_raw_processed's accel/gyro fields are valid */
 static atomic_bool imu_data_ready;
 
+/** @brief Raw double-buffer target for interrupt-mode magnetometer reads     */
 uint8_t mag_raw_buffer[8];
+/** @brief Set true by imu_it_handler() once imu_raw_processed's mag fields are valid */
 static atomic_bool mag_data_ready;
-#endif
 
+/** @brief BMM150 factory trim coefficients, populated by mag_init()          */
 MAG_TRIM mag_trim;
 
 /*------------------------------------------------------------------------------
  Internal function prototypes 
 ------------------------------------------------------------------------------*/
 
-/* Initialize the magnetometer */
-#if defined( A0002_REV2 )
+/** @brief Initialize the magnetometer                                       */
 static IMU_STATUS mag_init
     (
     IMU_CONFIG* imu_config_ptr
     );
-#endif
 
-/* Read IMU registers */
+/** @brief Read IMU registers (blocking)                                     */
 static IMU_STATUS read_imu_regs
     (
     uint8_t  reg_addr, /* Register address    */
@@ -81,15 +89,14 @@ static IMU_STATUS read_imu_regs
     uint8_t  num_regs  /* Number of registers */
     ); 
 
-#if defined( A0002_REV2 )
-/* Write to a specified IMU register */
+/** @brief Write to a specified IMU register (blocking)                      */
 static IMU_STATUS write_imu_reg 
     (
     uint8_t reg_addr, /* Register address    */
     uint8_t data      /* Register data       */
     );
 
-/* Write IMU registers */
+/** @brief Write IMU registers (blocking)                                    */
 static IMU_STATUS write_imu_regs 
     (
     uint8_t  reg_addr, /* Register address    */
@@ -97,7 +104,7 @@ static IMU_STATUS write_imu_regs
     uint32_t num_regs  /* Number of registers */
     ); 
 
-/* Read Magnetometer registers */
+/** @brief Read Magnetometer registers (blocking)                            */
 static IMU_STATUS read_mag_regs
     (
     uint8_t  reg_addr, /* Register address    */
@@ -105,13 +112,14 @@ static IMU_STATUS read_mag_regs
     uint8_t  num_regs  /* Number of registers */
     ); 
 
-/* Write to a specified magnetometer register */
+/** @brief Write to a specified magnetometer register (blocking)             */
 static IMU_STATUS write_mag_reg 
     (
     uint8_t reg_addr, /* Register address    */
     uint8_t data      /* Register data       */
     ); 
 
+/** @brief Read IMU registers (interrupt mode)                               */
 static IMU_STATUS read_imu_regs_IT
     (
     uint8_t  reg_addr, /* Register address            */
@@ -119,33 +127,28 @@ static IMU_STATUS read_imu_regs_IT
     uint8_t  num_regs  /* Number of registers to read */
     );
 
+/** @brief Read Magnetometer registers (interrupt mode)                      */
 static IMU_STATUS read_mag_regs_IT 
     (
     uint8_t  reg_addr,
     uint8_t* data_ptr, 
     uint8_t  num_regs
     );
-#endif /* #if defined( A0002_REV2 ) */
 
 
 /*------------------------------------------------------------------------------
  Procedures 
 ------------------------------------------------------------------------------*/
 
-#if defined( A0002_REV2 )
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		imu_init                                                               *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Initialize the IMU                                                     *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Initializes the IMU (BMI270 config load + sensor config + BMM150 mag_init).
+  * @param  imu_config_ptr: Pointer to user configuration struct.
+  * @return IMU_STATUS
+  */
 IMU_STATUS imu_init 
-	(
+    (
     IMU_CONFIG* imu_config_ptr /* IMU Configuration */ 
-	)
+    )
 {
 /*------------------------------------------------------------------------------
  Local variables 
@@ -297,19 +300,13 @@ HAL_NVIC_EnableIRQ(I2C2_EV_IRQn);
 /* IMU Inititialization Successful */
 return IMU_OK;
 } /* imu_init */
-#endif /* #if defined( A0002_REV2 ) */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		imu_get_accel_xyz                                                      *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		Return the pointer to structure that updates the                       * 
-*       x,y,z acceleration values from the IMU                                 *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Blocking read of accelerometer X/Y/Z.
+  * @param  pIMU: Destination struct for the accel readout (size: 12 bytes).
+  * @return IMU_STATUS
+  */
 IMU_STATUS imu_get_accel_xyz
     (
     IMU_RAW *pIMU /* size: 12 bytes */
@@ -330,32 +327,20 @@ IMU_STATUS    imu_status;     /* IMU status codes                   */
 ------------------------------------------------------------------------------*/
 
 /* Read ACCEL_X, ACCEL_Y, ACCEL_Z high byte and low byte registers */
-#if   defined( A0002_REV1 )
-    imu_status = read_imu_regs( IMU_REG_ACCEL_XOUT_H, 
-                                &regAccel[0]        , 
-                                sizeof( regAccel ) );
-#elif defined( A0002_REV2 )
-    imu_status = read_imu_regs( IMU_REG_DATA_8, 
-                                &regAccel[0]  ,
-                                sizeof( regAccel ) );
-#endif
+imu_status = read_imu_regs( IMU_REG_DATA_8, 
+                            &regAccel[0]  ,
+                            sizeof( regAccel ) );
 
 /* Check for HAL IMU error */
 if ( imu_status != IMU_OK )
-	{
-	return imu_status;
-	}
+    {
+    return imu_status;
+    }
 
 /* Combine high byte and low byte to 16 bit data */ 
-#if   defined( A0002_REV1 )
-    accel_x_raw    = ( (uint16_t) regAccel[0] ) << 8  | regAccel[1];
-    accel_y_raw    = ( (uint16_t) regAccel[2] ) << 8  | regAccel[3];
-    accel_z_raw    = ( (uint16_t) regAccel[4] ) << 8  | regAccel[5]; 
-#elif defined( A0002_REV2 )
-    accel_x_raw    = ( (uint16_t) regAccel[1] ) << 8  | regAccel[0];
-    accel_y_raw    = ( (uint16_t) regAccel[3] ) << 8  | regAccel[2];
-    accel_z_raw    = ( (uint16_t) regAccel[5] ) << 8  | regAccel[4]; 
-#endif
+accel_x_raw    = ( (uint16_t) regAccel[1] ) << 8  | regAccel[0];
+accel_y_raw    = ( (uint16_t) regAccel[3] ) << 8  | regAccel[2];
+accel_z_raw    = ( (uint16_t) regAccel[5] ) << 8  | regAccel[4]; 
 
 /* Export data to IMU sstruct */
 pIMU->accel_x = accel_x_raw;
@@ -366,16 +351,11 @@ return IMU_OK;
 } /* imu_get_accel_xyz */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		imu_get_gryo_xyz                                                       *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		Return the pointer to structure that updates the x,y,z gyro values     * 
-*       from the IMU                                                           *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Blocking read of gyroscope X/Y/Z.
+  * @param  pIMU: Destination struct for the gyro readout.
+  * @return IMU_STATUS
+  */
 IMU_STATUS imu_get_gyro_xyz
     (
     IMU_RAW *pIMU
@@ -396,32 +376,20 @@ IMU_STATUS  imu_status;   /* IMU status return codes   */
 ------------------------------------------------------------------------------*/
 
 /* Read GYRO_X, GYRO_Y, GYRO_Z high byte and low byte registers */
-#if   defined( A0002_REV1 )
-    imu_status = read_imu_regs( IMU_REG_GYRO_XOUT_H, 
-                                &regGyro[0]        , 
-                                sizeof( regGyro ) );
-#elif defined( A0002_REV2 )
-    imu_status = read_imu_regs( IMU_REG_DATA_14, 
-                                &regGyro[0]    , 
-                                sizeof( regGyro ) );
-#endif
+imu_status = read_imu_regs( IMU_REG_DATA_14, 
+                            &regGyro[0]    , 
+                            sizeof( regGyro ) );
  
 /* Check for HAL IMU error */
 if ( imu_status != IMU_OK )
-	{
-	return imu_status;
-	}
+    {
+    return imu_status;
+    }
 
 /* Combine high byte and low byte to 16 bit data  */
-#if   defined( A0002_REV1 )
-    gyro_x_raw = ( (uint16_t) regGyro[0] ) << 8 | regGyro[1];
-    gyro_y_raw = ( (uint16_t) regGyro[0] ) << 8 | regGyro[1];
-    gyro_z_raw = ( (uint16_t) regGyro[0] ) << 8 | regGyro[1];
-#elif defined( A0002_REV2 )
-    gyro_x_raw = (int16_t) ( (uint16_t) regGyro[1] << 8 | regGyro[0] );
-    gyro_y_raw = (int16_t) ( (uint16_t) regGyro[3] << 8 | regGyro[2] );
-    gyro_z_raw = (int16_t) ( (uint16_t) regGyro[5] << 8 | regGyro[4] );
-#endif
+gyro_x_raw = (int16_t) ( (uint16_t) regGyro[1] << 8 | regGyro[0] );
+gyro_y_raw = (int16_t) ( (uint16_t) regGyro[3] << 8 | regGyro[2] );
+gyro_z_raw = (int16_t) ( (uint16_t) regGyro[5] << 8 | regGyro[4] );
 
 /* Export Sensor Readouts */
 pIMU->gyro_x = gyro_x_raw;
@@ -432,17 +400,11 @@ return IMU_OK;
 } /* imu_get_gyro_xyz */
 
 
-#ifdef A0002_REV2
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		imu_get_accel_and_gyro                                                 *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-* 		Return a pointer to the struct that houses accel and gyro values       *
-*       from the IMU                                                           *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Blocking read of accelerometer and gyroscope X/Y/Z in a single burst.
+  * @param  pIMU: Destination struct for the accel + gyro readout.
+  * @return IMU_STATUS
+  */
 IMU_STATUS imu_get_accel_and_gyro
     (
     IMU_RAW *pIMU
@@ -473,9 +435,9 @@ imu_status = read_imu_regs( IMU_REG_DATA_8,
  
 /* Check for HAL IMU error */
 if ( imu_status != IMU_OK )
-	{
-	return imu_status;
-	}
+    {
+    return imu_status;
+    }
 
 /* Combine high byte and low byte to 16 bit data  */
 accel_x_raw = (int16_t) ( (uint16_t) regRaw[1] << 8 | regRaw[0] );
@@ -494,20 +456,14 @@ pIMU->gyro_y = gyro_y_raw;
 pIMU->gyro_z = gyro_z_raw; 
 
 return IMU_OK;
-} /* imu_get_gyro_xyz */
-#endif
+} /* imu_get_accel_and_gyro */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-* 		imu_get_mag_xyz                                                        *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-*       Return the pointer to structure that updates the x, y, z, and RHALL    *
-*       magnetometer values from the BMM150.                                   *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Blocking read of magnetometer X/Y/Z.
+  * @param  pIMU: Destination struct for the magnetometer readout.
+  * @return IMU_STATUS
+  */
 IMU_STATUS imu_get_mag_xyz
     (
     IMU_RAW *pIMU
@@ -528,45 +484,26 @@ IMU_STATUS imu_status;     /* IMU status return codes           */
  API function implementation 
 ------------------------------------------------------------------------------*/
 
-/* Read BMM150 X, Y, Z, and RHALL registers */
-imu_status = read_mag_regs( MAG_REG_DATAX_L,
-                            &regMag[0],
+/* Read MAG_X, MAG_Y, MAG_Z high byte and low byte registers */
+imu_status = read_mag_regs( MAG_REG_DATAX_L, 
+                            &regMag[0]     , 
                             sizeof( regMag ) );
 
-/* Check for magnetometer read error */
-if ( imu_status != IMU_OK )
+/* Check for HAL IMU error */
+if ( imu_status == IMU_TIMEOUT )
     {
-    return imu_status;
+    return IMU_TIMEOUT;
     }
 
-/* Combine and scale the packed BMM150 register values */
-mag_x_raw = (int16_t)(   (uint16_t) regMag[1]                        << MAG_XY_MSB_BITSHIFT ) |
-                     ( ( (uint16_t) regMag[0] & MAG_XY_LSB_BITMASK ) >> MAG_XY_LSB_BITSHIFT );
-
-mag_y_raw = (int16_t)(   (uint16_t) regMag[3]                        << MAG_XY_MSB_BITSHIFT ) |
-                     ( ( (uint16_t) regMag[2] & MAG_XY_LSB_BITMASK ) >> MAG_XY_LSB_BITSHIFT );
-
-mag_z_raw = (int16_t)(   (uint16_t) regMag[5]                       << MAG_Z_MSB_BITSHIFT ) |
-                     ( ( (uint16_t) regMag[4] & MAG_Z_LSB_BITMASK ) >> MAG_Z_LSB_BITSHIFT );
-
-mag_hall_raw = (uint16_t)(   (uint16_t) regMag[7]                            << MAG_RHALL_MSB_BITSHIFT ) |
-                          ( ( (uint16_t) regMag[6] & MAG_RHALL_LSB_BITMASK ) >> MAG_RHALL_LSB_BITSHIFT );
-
-/* Sign-extend the packed 13-bit X/Y and 15-bit Z measurements */
-if ( mag_x_raw & ( 1 << 12 ) )
-    {
-    mag_x_raw |= (int16_t) ~( ( 1 << 13 ) - 1 );
-    }
-
-if ( mag_y_raw & ( 1 << 12 ) )
-    {
-    mag_y_raw |= (int16_t) ~( ( 1 << 13 ) - 1 );
-    }
-
-if ( mag_z_raw & ( 1 << 14 ) )
-    {
-    mag_z_raw |= (int16_t) ~( ( 1 << 15 ) - 1 );
-    }
+/* Combine high byte and low byte to 16 bit data */
+mag_x_raw  = (   (uint16_t) regMag[1]                        << MAG_XY_MSB_BITSHIFT ) | 
+             ( ( (uint16_t) regMag[0] & MAG_XY_LSB_BITMASK ) >> MAG_XY_LSB_BITSHIFT );
+mag_y_raw  = (   (uint16_t) regMag[3]                        << MAG_XY_MSB_BITSHIFT ) | 
+             ( ( (uint16_t) regMag[2] & MAG_XY_LSB_BITMASK ) >> MAG_XY_LSB_BITSHIFT );
+mag_z_raw  = (   (uint16_t) regMag[5]                        << MAG_Z_MSB_BITSHIFT  ) | 
+             ( ( (uint16_t) regMag[4] & MAG_Z_LSB_BITMASK )  >> MAG_Z_LSB_BITSHIFT  );
+mag_hall_raw = (   (uint16_t) regMag[7]                            << MAG_RHALL_MSB_BITSHIFT  ) | 
+               ( ( (uint16_t) regMag[6] & MAG_RHALL_LSB_BITMASK )  >> MAG_RHALL_LSB_BITSHIFT  );
 
 /* Export sensor data */
 pIMU->mag_x    = mag_x_raw;
@@ -578,16 +515,11 @@ return IMU_OK;
 } /* imu_get_mag_xyz */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		imu_get_device_id                                                      *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-* 		return the device ID of the IMU to verify that the                     *
-*       IMU registers are accessible                                           *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Reads and verifies the IMU's CHIP_ID register.
+  * @param  pdevice_id: Destination for the returned device ID.
+  * @return IMU_STATUS: IMU_UNRECOGNIZED_OP if the ID doesn't match IMU_ID.
+  */
 IMU_STATUS imu_get_device_id
     (
     uint8_t* pdevice_id 
@@ -604,11 +536,7 @@ IMU_STATUS  imu_status;
 ------------------------------------------------------------------------------*/
 
 /* Read Device ID register */
-#if defined( A0002_REV1 )
-    imu_status = read_imu_regs( IMU_REG_WHO_AM_I, pdevice_id, sizeof( uint8_t ) );
-#elif defined( A0002_REV2 )
-    imu_status = read_imu_regs( IMU_REG_CHIP_ID, pdevice_id, sizeof( uint8_t ) );
-#endif
+imu_status = read_imu_regs( IMU_REG_CHIP_ID, pdevice_id, sizeof( uint8_t ) );
 
 if ( *pdevice_id != IMU_ID )
     {
@@ -623,56 +551,54 @@ return imu_status;
  Internal procedures 
 ------------------------------------------------------------------------------*/
 
-#if defined( A0002_REV2 )
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		mag_init                                                               *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Initialize the magnetometer                                            *
-*                                                                              *
-* COPYRIGHT:                                                                   *
-*       This function is heavily derived from the official Bosch BMM150        *
-*       driver, which is protected by the BSD-3-Clause license. This function  *
-*		is exempt from any licensing that may be applied to a current/future   * 
-*		Sun Devil Rocketry project. Per the terms of the BSD-3-Clause license, *
-*		the following notice is retained from the source project and applies   *
-*		to the procedure below.                                                *
-*	              							                                   *
-*		Copyright (c) 2020 Bosch Sensortec GmbH. All rights reserved.		   *
-*																			   *
-*		BSD-3-Clause														   *
-*																			   *
-*		Redistribution and use in source and binary forms, with or without	   *
-*		modification, are permitted provided that the following conditions are *
-*		met:																   *
-*																			   *
-*		1. Redistributions of source code must retain the above copyright      *
-*	    notice, this list of conditions and the following disclaimer.		   *
-*																			   *
-*		2. Redistributions in binary form must reproduce the above copyright   *
-*	    notice, this list of conditions and the following disclaimer in the    *
-*	    documentation and/or other materials provided with the distribution.   *
-*																			   *
-*		3. Neither the name of the copyright holder nor the names of its       *
-*	    contributors may be used to endorse or promote products derived from   *
-*	    this software without specific prior written permission. 			   *
-*																			   *
-*		THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS	   *
-*		"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT	   *
-*		LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS	   *
-*		FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE		   *
-*		COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,   *
-*		INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES			   *
-*		(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR	   *
-*		SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)	   *
-*		HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,	   *
-*		STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING  *
-*		IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE	   *
-*		POSSIBILITY OF SUCH DAMAGE.											   *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Initialize the magnetometer.
+  *
+  * @copyright Copyright (c) 2020 Bosch Sensortec GmbH. All rights reserved.
+  *
+  *         This function is heavily derived from the official Bosch BMM150
+  *         driver, which is protected by the BSD-3-Clause license. This
+  *         function is exempt from any licensing that may be applied to a
+  *         current/future Sun Devil Rocketry project. Per the terms of the
+  *         BSD-3-Clause license, the following notice is retained from the
+  *         source project and applies to the procedure below.
+  *
+  *         BSD-3-Clause
+  *
+  *         Redistribution and use in source and binary forms, with or
+  *         without modification, are permitted provided that the following
+  *         conditions are met:
+  *
+  *         1. Redistributions of source code must retain the above
+  *         copyright notice, this list of conditions and the following
+  *         disclaimer.
+  *
+  *         2. Redistributions in binary form must reproduce the above
+  *         copyright notice, this list of conditions and the following
+  *         disclaimer in the documentation and/or other materials provided
+  *         with the distribution.
+  *
+  *         3. Neither the name of the copyright holder nor the names of its
+  *         contributors may be used to endorse or promote products derived
+  *         from this software without specific prior written permission.
+  *
+  *         THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+  *         CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+  *         INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+  *         MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+  *         DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+  *         CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+  *         SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+  *         LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF
+  *         USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
+  *         AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+  *         LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+  *         ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  *         POSSIBILITY OF SUCH DAMAGE.
+  *
+  * @param  imu_config_ptr: Pointer to user configuration struct.
+  * @return IMU_STATUS
+  */
 static IMU_STATUS mag_init
     (
     IMU_CONFIG* imu_config_ptr
@@ -783,19 +709,16 @@ mag_trim.dig_xyz1 = (uint16_t)(temp_msb | buffer[4]);
 /* Successful magnetometer Initialization */
 return IMU_OK;
 } /* mag_init */
-#endif /* #if defined( A0002_REV2 ) */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		read_mag_regs                                                          *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-* 		Read the specific numbers of registers at one time from magnetometer   *
-*       module in the IMU                                                      *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Read the specified number of registers at one time from the
+  *         magnetometer module in the IMU (blocking).
+  * @param  reg_addr: Starting register address.
+  * @param  data_ptr: Destination buffer.
+  * @param  num_regs: Number of registers to read.
+  * @return IMU_STATUS
+  */
 static IMU_STATUS read_mag_regs 
     (
     uint8_t  reg_addr,
@@ -825,27 +748,25 @@ hal_status = HAL_I2C_Mem_Read( &( IMU_I2C )        ,
 
 /* Return status code of I2C HAL */
 if ( hal_status != HAL_OK ) 
-	{
-	return IMU_MAG_ERROR;
-	}
+    {
+    return IMU_MAG_ERROR;
+    }
 else 
-	{
-	return IMU_OK;
-	}
+    {
+    return IMU_OK;
+    }
 
 } /* read_mag_regs */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		read_imu_regs                                                          *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-* 		Read the specific numbers of registers at one time from acceleration   *
-*       and gyroscope module in the IMU                                        *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Read the specified number of registers at one time from the
+  *         accelerometer and gyroscope module in the IMU (blocking).
+  * @param  reg_addr: Starting register address.
+  * @param  data_ptr: Destination buffer.
+  * @param  num_regs: Number of registers to read.
+  * @return IMU_STATUS
+  */
 static IMU_STATUS read_imu_regs 
     (
     uint8_t  reg_addr, /* Register address            */
@@ -873,25 +794,17 @@ hal_status = HAL_I2C_Mem_Read( &( IMU_I2C )        ,
                                HAL_MAX_DELAY );
 
 if ( hal_status != HAL_OK )
-	{
-	return IMU_ERROR;
-	}
+    {
+    return IMU_ERROR;
+    }
 else
-	{
-	return IMU_OK;
-	}
+    {
+    return IMU_OK;
+    }
 } /* read_imu_regs */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-*       imu_get_imu_data_ready                                                 *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-*       Returns the imu_data_ready flag                                        *
-*                                                                              *
-*******************************************************************************/
+/** @brief  Returns the imu_data_ready flag.                                 */
 bool imu_get_imu_data_ready
     (
     void
@@ -902,15 +815,7 @@ return imu_data_ready;
 } /* imu_get_imu_data_ready */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   * 
-*        imu_get_mag_data_ready                                                *
-*                                                                              *
-* DESCRIPTION:                                                                 * 
-*        Returns the mag_data_ready flag                                       * 
-*                                                                              *
-*******************************************************************************/
+/** @brief  Returns the mag_data_ready flag.                                 */
 bool imu_get_mag_data_ready
     (
     void
@@ -921,16 +826,12 @@ return mag_data_ready;
 } /* imu_get_mag_data_ready */
 
 
-#if defined( A0002_REV2 )
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		write_imu_reg                                                          *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       write to a specified IMU register                                      *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Write to a specified IMU register (blocking).
+  * @param  reg_addr: Register address.
+  * @param  data:     Register data.
+  * @return IMU_STATUS
+  */
 static IMU_STATUS write_imu_reg 
     (
     uint8_t reg_addr, /* Register address    */
@@ -970,15 +871,13 @@ else
 } /* write_imu_reg */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		write_imu_regs                                                         *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       write to specified IMU registers                                       *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Write to specified IMU registers (blocking).
+  * @param  reg_addr: Starting register address.
+  * @param  data_ptr: Source data buffer.
+  * @param  num_regs: Number of registers to write.
+  * @return IMU_STATUS
+  */
 static IMU_STATUS write_imu_regs 
     (
     uint8_t  reg_addr, /* Register address    */
@@ -1019,15 +918,12 @@ else
 } /* write_imu_regs */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		write_mag_reg                                                          *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       write to a specified magnetometer register                             *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Write to a specified magnetometer register (blocking).
+  * @param  reg_addr: Register address.
+  * @param  data:     Register data.
+  * @return IMU_STATUS
+  */
 static IMU_STATUS write_mag_reg 
     (
     uint8_t reg_addr, /* Register address    */
@@ -1064,21 +960,15 @@ else
     {
     return IMU_OK;
     }
-} /* write_mag_regs */
+} /* write_mag_reg */
 
 
-#endif /* #if defined( A0002_REV2 ) */
-
-#if defined( A0002_REV2 )
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		start_imu_read_IT                                                      *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Read the accel and gyro registers in interrupt mode.                   *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Kicks off a non-blocking read of the accel and gyro registers.
+  * @note   Clears imu_data_ready/mag_data_ready; imu_it_handler() sets them
+  *         once the chained accel/gyro + mag reads have both completed.
+  * @return IMU_STATUS
+  */
 IMU_STATUS start_imu_read_IT
     (
     void
@@ -1092,15 +982,13 @@ return read_imu_regs_IT( IMU_REG_DATA_8,
 } /* start_imu_read_IT */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		read_imu_regs_IT                                                       *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Read the IMU registers in interrupt mode.                              *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Read the IMU registers in interrupt mode.
+  * @param  reg_addr: Starting register address.
+  * @param  data_ptr: Destination buffer.
+  * @param  num_regs: Number of registers to read.
+  * @return IMU_STATUS
+  */
 static IMU_STATUS read_imu_regs_IT
     (
     uint8_t  reg_addr, /* Register address            */
@@ -1108,7 +996,22 @@ static IMU_STATUS read_imu_regs_IT
     uint8_t  num_regs  /* Number of registers to read */
     )
 {
-HAL_StatusTypeDef hal_status = HAL_OK;
+/*------------------------------------------------------------------------------
+ Local variables  
+------------------------------------------------------------------------------*/
+HAL_StatusTypeDef hal_status;
+
+
+/*------------------------------------------------------------------------------
+ Initializations 
+------------------------------------------------------------------------------*/
+hal_status = HAL_OK;
+
+
+/*------------------------------------------------------------------------------
+ Implementation 
+------------------------------------------------------------------------------*/
+
 /* Read I2C register */
 hal_status = HAL_I2C_Mem_Read_IT( &( IMU_I2C )        , 
                                IMU_ADDR            , 
@@ -1118,25 +1021,27 @@ hal_status = HAL_I2C_Mem_Read_IT( &( IMU_I2C )        ,
                                num_regs            );
 
 if ( hal_status != HAL_OK )
-	{
-	return IMU_ERROR;
-	}
+    {
+    return IMU_ERROR;
+    }
 else
-	{
-	return IMU_OK;
-	}
+    {
+    return IMU_OK;
+    }
 }
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		imu_it_handler                                                         *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Handle a memory_rx interupt signal from the IMU.                       *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Handle a memory_rx interrupt signal from the IMU.
+  * @note   Two-stage state machine driven by imu_data_ready/mag_data_ready:
+  *           1. First call (neither flag set): parses the just-completed
+  *              accel/gyro burst into imu_raw_processed, marks
+  *              imu_data_ready, then kicks off the chained mag read.
+  *           2. Second call (accel/gyro ready, mag not yet): parses the
+  *              completed mag burst, sign-extends the 13/15-bit fields,
+  *              and marks mag_data_ready.
+  * @return IMU_STATUS
+  */
 IMU_STATUS imu_it_handler
     (
     void
@@ -1182,28 +1087,34 @@ else if( imu_data_ready && !mag_data_ready )
                  ( ( (uint16_t) mag_raw_buffer[6] & MAG_RHALL_LSB_BITMASK )  >> MAG_RHALL_LSB_BITSHIFT  );
 
     /* Sign-extend 13-bit and 15-bit values */
-    if (imu_raw_processed.mag_x & (1 << 12)) imu_raw_processed.mag_x |= ~((1 << 13) - 1);
-    if (imu_raw_processed.mag_y & (1 << 12)) imu_raw_processed.mag_y |= ~((1 << 13) - 1);
-    if (imu_raw_processed.mag_z & (1 << 14)) imu_raw_processed.mag_z |= ~((1 << 15) - 1);
+    if (imu_raw_processed.mag_x & (1 << 12)) 
+        {
+        imu_raw_processed.mag_x |= ~((1 << 13) - 1);
+        }
+    if (imu_raw_processed.mag_y & (1 << 12)) 
+        {
+        imu_raw_processed.mag_y |= ~((1 << 13) - 1);
+        }
+    if (imu_raw_processed.mag_z & (1 << 14)) 
+        {
+        imu_raw_processed.mag_z |= ~((1 << 15) - 1);
+        }
     
     mag_data_ready = true;
 
     return imu_status;
     }
 
-    return IMU_FAIL;
+return IMU_FAIL;
 } /* imu_it_handler */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		get_imu_it                                                             *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Getter function for IMU sensor data (IT).                              *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Getter function for IMU sensor data (interrupt mode).
+  * @param  cpy_ptr: Destination struct for the copied sensor readout.
+  * @return IMU_STATUS: IMU_BUSY until both imu_data_ready and mag_data_ready
+  *         are set by imu_it_handler().
+  */
 IMU_STATUS get_imu_it
     (
     IMU_RAW* cpy_ptr
@@ -1217,19 +1128,17 @@ if( !imu_data_ready || !mag_data_ready )
 memcpy( cpy_ptr, &imu_raw_processed, sizeof( IMU_RAW ) );
 
 return IMU_OK;
-}/* get_imu_it */
+} /* get_imu_it */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		read_mag_regs_IT                                                       *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-* 		Read the specific numbers of registers at one time from magnetometer   *
-*       module in the IMU                                                      *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Read the specified number of registers at one time from the
+  *         magnetometer module in the IMU (interrupt mode).
+  * @param  reg_addr: Starting register address.
+  * @param  data_ptr: Destination buffer.
+  * @param  num_regs: Number of registers to read.
+  * @return IMU_STATUS
+  */
 static IMU_STATUS read_mag_regs_IT 
     (
     uint8_t  reg_addr,
@@ -1257,28 +1166,21 @@ hal_status = HAL_I2C_Mem_Read_IT( &( IMU_I2C )     ,
 
 /* Return status code of I2C HAL */
 if ( hal_status != HAL_OK ) 
-	{
-	return IMU_MAG_ERROR;
-	}
+    {
+    return IMU_MAG_ERROR;
+    }
 else 
-	{
-	return IMU_OK;
-	}
+    {
+    return IMU_OK;
+    }
 
 } /* read_mag_regs_IT */
 
-#endif /* #if defined( A0002_REV2 ) */
 
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		imu_get_mag_trim                                                       *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-* 		Getter function for the magnetometer trim from mag_init.               *
-*                                                                              *
-*******************************************************************************/
+/**
+  * @brief  Getter function for the magnetometer trim from mag_init().
+  * @return MAG_TRIM
+  */
 MAG_TRIM imu_get_mag_trim
     (
     void
@@ -1286,7 +1188,7 @@ MAG_TRIM imu_get_mag_trim
 {
 return mag_trim;
 
-}
+} /* imu_get_mag_trim */
 
 /*******************************************************************************
 * END OF FILE                                                                  * 

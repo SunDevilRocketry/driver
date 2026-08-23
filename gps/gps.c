@@ -62,6 +62,12 @@ Global Variables
 ------------------------------------------------------------------------------*/
 
 /*------------------------------------------------------------------------------
+ Local Variables
+------------------------------------------------------------------------------*/
+static GPS_DATA gps_last_valid_rmc_data;
+static GPS_DATA gps_last_valid_gll_data;
+
+/*------------------------------------------------------------------------------
  Procedures 
 ------------------------------------------------------------------------------*/
 
@@ -282,11 +288,17 @@ int gps_mesg_validate(char *nmeastr){
 *                                                                              *
 *******************************************************************************/
 void GPS_parse(GPS_DATA* gps_ptr, char *GPSstrParse){
+
+
+
+
 /* Get message type */
 char token[8]; // Needs to be 8 chars for memory alignment
 strncpy(token, GPSstrParse, 6);
 token[6] = '\0';
 int idx = 7; /* Skips "$GPXXX,"*/
+
+
 
 /* Parse by message type */
 if (!strcmp(token, "$GPGGA")) 
@@ -305,27 +317,80 @@ if (!strcmp(token, "$GPGGA"))
     }
 else if (!strcmp(token, "$GPRMC")) 
     {
-    gps_ptr->utc_time = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->rmc_status = gps_string_to_char(GPSstrParse, &idx); /* unused */
-    gps_ptr->nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->ns = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->ew = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->speed_k = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->course_d = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->date = (int)(0.5 + gps_string_to_float(GPSstrParse, &idx));
-    gps_conv_latitude_longitude( gps_ptr );
+    /* Parse data */
+    float utc_time = gps_string_to_float(GPSstrParse, &idx);
+    char rmc_status = gps_string_to_char(GPSstrParse, &idx);
+    float nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
+    char ns = gps_string_to_char(GPSstrParse, &idx);
+    float nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
+    char ew = gps_string_to_char(GPSstrParse, &idx);
+    float speed_k = gps_string_to_float(GPSstrParse, &idx);
+    float course_d = gps_string_to_float(GPSstrParse, &idx);
+    int date = (int)(0.5 + gps_string_to_float(GPSstrParse, &idx));
+
+    /* Save status */
+    gps_ptr->rmc_status = rmc_status;
+    
+    /* Save rest of data only if status is A: Active */
+    if ( rmc_status == 'A' )
+        {
+        gps_ptr->utc_time = utc_time;
+        gps_ptr->nmea_latitude = nmea_latitude;
+        gps_ptr->ns = ns;
+        gps_ptr->nmea_longitude = nmea_longitude;
+        gps_ptr->ew = ew;
+        gps_ptr->speed_k = speed_k;
+        gps_ptr->course_d = course_d;
+        gps_ptr->date = date;
+        gps_conv_latitude_longitude( gps_ptr );
+
+        /* Update last valid data */
+        gps_last_valid_rmc_data = *gps_ptr;
+        }
+    /* Discard new data, use last valid data instead if the status is V: Void */
+    else if ( rmc_status == 'V' )
+        {
+        *gps_ptr = gps_last_valid_rmc_data;
+
+        /* Re-save rmc_status since the previous statement may override it */
+        gps_ptr->rmc_status = rmc_status;
+        }
     }
 else if (!strcmp(token, "$GPGLL")) 
     {
-    gps_ptr->nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->ns = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->ew = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->utc_time = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->gll_status = gps_string_to_char(GPSstrParse, &idx);
-    gps_conv_latitude_longitude( gps_ptr );
+    /* Parse data */
+    float nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
+    char ns = gps_string_to_char(GPSstrParse, &idx);
+    float nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
+    char ew = gps_string_to_char(GPSstrParse, &idx);
+    float utc_time = gps_string_to_float(GPSstrParse, &idx);
+    char gll_status = gps_string_to_char(GPSstrParse, &idx);
+    
+    /* Store status */
+    gps_ptr->gll_status = gll_status;
+
+    /* Save rest of data only if status is A: Data Valid */
+    if (gll_status == 'A')
+        {
+        gps_ptr->nmea_latitude = nmea_latitude;
+        gps_ptr->ns = ns;
+        gps_ptr->nmea_longitude = nmea_longitude;
+        gps_ptr->ew = ew;
+        gps_ptr->utc_time = utc_time;
+        gps_conv_latitude_longitude( gps_ptr );
+
+        gps_last_valid_gll_data = *gps_ptr;
+        }
+    else if (gll_status == 'V')
+        {
+        *gps_ptr = gps_last_valid_gll_data;
+
+        /* Resave gll status since the previous statement may override it */
+        gps_ptr->gll_status = gll_status;
+        }
     }
+    
+
 else if (!strcmp(token, "$GPVTG")) 
     {
     gps_ptr->course_t = gps_string_to_float(GPSstrParse, &idx);

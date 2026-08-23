@@ -1,35 +1,35 @@
-/*******************************************************************************
-*
-* FILE: 
-* 		imu.h
-*
-* DESCRIPTION: 
-* 		Contains API functions to access data from the IMU MPU9250
-*
-* COPYRIGHT:                                                                   
-*       Copyright (c) 2025 Sun Devil Rocketry.                                 
-*       All rights reserved.                                                   
-*                                                                              
-*       This software is licensed under terms that can be found in the LICENSE 
-*       file in the root directory of this software component.                 
-*       If no LICENSE file comes with this software, it is covered under the   
-*       BSD-3-Clause.                                                          
-*                                                                              
-*       https://opensource.org/license/bsd-3-clause          
-*
-*******************************************************************************/
+/**
+  ******************************************************************************
+  * @file           : imu.h
+  * @brief          : Unified IMU System Interface
+  * @author         : Sun Devil Rocketry Firmware Team
+  *
+  * @note  Abstracts the underlying differences between legacy 9-axis I2C 
+  *        architectures and newer 6-axis SPI DMA architectures.
+  *
+  *        This interface serves as a static contract across all projects. 
+  *        The implementation is swappable: `imu_dflt.c` provides the 
+  *        working default, but individual projects can supply a custom 
+  *        source file to manage specific power-mode and full-scale scheduling.
+  ******************************************************************************
+  * @attention
+  * Copyright (c) 2026 Sun Devil Rocketry. All rights reserved.
+  * This software is licensed under terms found in the LICENSE file in the root
+  * directory of this component. If absent, BSD-3-Clause applies:
+  * https://opensource.org/license/bsd-3-clause
+  ******************************************************************************
+  */
 
-
-/* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef IMU_H
 #define IMU_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "stm32h7xx_hal.h"
 #include "math_sdr.h"
 
-#ifdef __cplusplus
-extern "C" {
+#if !defined( A0010 )
+    #include "imu_legacy.h"
 #endif
 
 
@@ -271,226 +271,41 @@ typedef struct _IMU_OFFSET {
 
 /* Sensor Enable Configuration */
 typedef enum _IMU_SENSOR_ENABLE
+typedef struct 
     {
-    IMU_DISABLE_SENSORS      = 0b00000000,
-    IMU_ENABLE_AUX           = 0b00000001,
-    IMU_ENABLE_GYRO          = 0b00000010, 
-    IMU_ENABLE_ACC           = 0b00000100,
-    IMU_ENABLE_TEMP          = 0b00001000,
-    IMU_ENABLE_AUX_GYRO      = 0b00000011,
-    IMU_ENABLE_AUX_ACC       = 0b00000101,
-    IMU_ENABLE_AUX_GYRO_ACC  = 0b00000111,
-    IMU_ENABLE_GYRO_ACC_TEMP = 0b00001110,
-    IMU_ENABLE_ALL           = 0b00001111
-    } IMU_SENSOR_ENABLE;
+    float accel[3];         /* m/s^2 (SI)                           */
+    float gyro[3];          /* dps                                  */
+    float quaternion[4];    /* [w, x, y, z], unit quat              */
+    bool  quaternion_valid; /* false on legacy until AHRS warms up  */
+    bool  is_valid;
+    } IMU_FlightData;
 
-/* Output Data Rate Configuration */
-typedef enum _IMU_ODR_SETTING
+typedef enum 
     {
-    IMU_ODR_0P78 = 1, /* 25/32 Hz */ 
-    IMU_ODR_1P5     , /* 25/16 Hz */
-    IMU_ODR_3P1     , /* 25/8  Hz */
-    IMU_ODR_6P25    , /* 25/4  Hz */
-    IMU_ODR_12P5    , /* 25/2  Hz */
-    IMU_ODR_25      , /* 25    Hz */
-    IMU_ODR_50      , /* 50    Hz */
-    IMU_ODR_100     , /* 100   Hz */
-    IMU_ODR_200     , /* 200   Hz */
-    IMU_ODR_400     , /* 400   Hz */
-    IMU_ODR_800     , /* 800   Hz */
-    IMU_ODR_1K6     , /* 1.6  kHz */
-    IMU_ODR_3K2
-    } IMU_ODR_SETTING;
+    IMU_SYS_OK = 0,
+    IMU_SYS_FAIL,
+    IMU_SYS_BUSY,      /* async path: no new data yet */
+    IMU_SYS_NO_DATA,
+    IMU_SYS_INIT_FAIL
+    } IMU_SYS_STATUS;
 
-/* Filtering Configuration */
-typedef enum _IMU_FILTER_CONFIG
-    {
-    IMU_FILTER_OSR4_AVG1 = 0            , /* OSR4 Filter, No Average       */
-    IMU_FILTER_OSR2_AVG2 = ( 0x01 << 4 ), /* OSR2 Filter, 2 Sample Average */
-    IMU_FILTER_NORM_AVG4 = ( 0x02 << 4 ), /* Normal Mode, 4 Sample Average */
-    IMU_FILTER_CIC_AVG8  = ( 0x03 << 4 ), /* CIC Filter , 8 Sample Average */
-    IMU_FILTER_AVG16     = ( 0x04 << 4 ), /* 16 Sample Average             */
-    IMU_FILTER_AVG32     = ( 0x05 << 4 ), /* 32 Sample Average             */
-    IMU_FILTER_AVG64     = ( 0x06 << 4 ), /* 64 Sample Average             */
-    IMU_FILTER_AVG128    = ( 0x07 << 4 )  /* 128 Sample Average            */
-    } IMU_FILTER_CONFIG;
-
-/* Filter Mode */
-typedef enum _IMU_FILTER_MODE
-    {
-    IMU_FILTER_FILTER_MODE  = ( 0x01 << 7 ),
-    IMU_FILTER_AVERAGE_MODE = ( 0x00 << 7 )
-    } IMU_FILTER_MODE;
-
-/* Accelerometer Measurement Range */
-typedef enum _IMU_ACC_RANGE
-    {
-    IMU_ACC_RANGE_2G = 0, /* +- 2g  */ 
-    IMU_ACC_RANGE_4G    , /* +- 4g  */
-    IMU_ACC_RANGE_8G    , /* +- 8g  */
-    IMU_ACC_RANGE_16G     /* +- 16g */
-    } IMU_ACC_RANGE;
-
-/* Gyroscope Measurement Range */
-typedef enum _IMU_GYRO_RANGE
-    {
-    IMU_GYRO_RANGE_2000 = 0, /* +- 2000 deg/s */
-    IMU_GYRO_RANGE_1000    , /* +- 1000 deg/s */
-    IMU_GYRO_RANGE_500     , /* +- 500  deg/s */
-    IMU_GYRO_RANGE_250     , /* +- 250  deg/s */
-    IMU_GYRO_RANGE_125       /* +- 125  deg/s */
-    } IMU_GYRO_RANGE;
-
-/* Magnetometer Output Data Rates */
-typedef enum _MAG_ODR_SETTING
-    {
-    MAG_ODR_10HZ = ( 0b000 << 3 ),
-    MAG_ODR_2HZ  = ( 0b001 << 3 ),
-    MAG_ODR_6HZ  = ( 0b010 << 3 ),
-    MAG_ODR_8HZ  = ( 0b011 << 3 ),
-    MAG_ODR_15HZ = ( 0b100 << 3 ),
-    MAG_ODR_20HZ = ( 0b101 << 3 ),
-    MAG_ODR_25HZ = ( 0b110 << 3 ),
-    MAG_ODR_30HZ = ( 0b111 << 3 )
-    } MAG_ODR_SETTING;
-
-/* Magnetometer Operation Mode */
-typedef enum _MAG_OP_MODE
-    {
-    MAG_NORMAL_MODE = ( 0b00 << 1 ),
-    MAG_FORCED_MODE = ( 0b01 << 1 ),
-    MAG_SLEEP_MODE  = ( 0b11 << 1 )
-    } MAG_OP_MODE;
-
-typedef struct _MAG_TRIM 
-    {
-    int8_t  dig_x1;
-    int8_t  dig_y1;
-    int8_t  dig_x2;
-    int8_t  dig_y2;
-    uint16_t dig_z1;
-    int16_t dig_z2;
-    int16_t dig_z3;
-    int16_t dig_z4;
-    uint8_t  dig_xy1;
-    int8_t   dig_xy2;
-    uint16_t dig_xyz1;
-    } MAG_TRIM;
-
-/* User IMU configuration settings */
-typedef struct _IMU_CONFIG 
-	{
-    IMU_SENSOR_ENABLE sensor_enable;      /* Enabled Sensors                    */
-    IMU_ODR_SETTING   acc_odr;            /* Accelerometer Output Data Rate     */ 
-    IMU_ODR_SETTING   gyro_odr;           /* Gyroscope Output Data Rate         */
-    MAG_ODR_SETTING   mag_odr;            /* Magnetometer Output Data Rate      */
-    IMU_FILTER_CONFIG acc_filter;         /* Accelerometer Filter Config        */
-    IMU_FILTER_CONFIG gyro_filter;        /* Gyroscope Filter Config            */
-    IMU_FILTER_MODE   acc_filter_mode;    /* Accelerometer Filtering Mode       */
-    IMU_FILTER_MODE   gyro_filter_mode;   /* Gyroscope Filtering Mode           */
-    IMU_ACC_RANGE     acc_range;          /* Accelerometer Measurement Range    */
-    IMU_GYRO_RANGE    gyro_range;         /* Gyroscope Measurement Range        */
-    MAG_OP_MODE       mag_op_mode;        /* Magnetometer Operation Mode        */
-    uint8_t           mag_xy_repititions; /* Magnetometer XY Measurement Reps   */
-    uint8_t           mag_z_repititions;  /* Magnetometer Z  Measurement Reps   */
-	} IMU_CONFIG;
-
-/* IMU Status */
-typedef enum IMU_STATUS
-	{
-    IMU_OK              = 0,
-    IMU_FAIL               ,
-    IMU_UNSUPPORTED_OP     ,
-    IMU_UNRECOGNIZED_OP    ,
-    IMU_TIMEOUT            , 
-    IMU_I2C_ERROR          ,
-    IMU_MAG_ERROR          ,
-    IMU_ERROR              ,
-    IMU_INIT_FAIL          ,
-    IMU_CONFIG_FAIL        ,
-    IMU_MAG_UNRECOGNIZED_ID,
-    IMU_MAG_INIT_FAIL      ,
-    IMU_BUSY
-	} IMU_STATUS;
-
-
-/*------------------------------------------------------------------------------
- Function Prototypes 
-------------------------------------------------------------------------------*/
-
-/* Initialize the IMU */
-IMU_STATUS imu_init
-    (
-    IMU_CONFIG* imu_config_ptr /* IMU Configuration Settings */
-    );
-
-/* Return the pointer to structure that updates the x,y,z acceleration values 
-   from the IMU */
-IMU_STATUS imu_get_accel_xyz
-    (
-    IMU_RAW *pIMU
-    );
-
-/* Return the pointer to structure that updates the x,y,z gyro values from the IMU */
-IMU_STATUS imu_get_gyro_xyz
-    (
-    IMU_RAW *pIMU
-    );
-
-#ifdef A0002_REV2
-/* Return a pointer to the struct that houses accel and gyro values from the IMU */
-IMU_STATUS imu_get_accel_and_gyro
-    (
-    IMU_RAW *pIMU
-    );
-#endif
-
-/* Return the pointer to structure that updates the x,y,z magnetometer values from 
-   the IMU */
-IMU_STATUS imu_get_mag_xyz
-    (
-    IMU_RAW *pIMU
-    );
-
-/* return the device ID of the IMU to verify that the IMU registers are accessible */
-IMU_STATUS imu_get_device_id
-    (
-    uint8_t* pdevice_id 
-    );
-
-/* Change configuration of accel, gyro, mag */
-void IMU_config
-    (
-    IMU_CONFIG *pimu_config,
-    uint8_t accel_setting,
-    uint16_t gyro_setting,
-    uint16_t mag_setting
-    );
-
-/* Get the static variable imu_data_ready */
-bool imu_get_imu_data_ready
+/**
+ * @return IMU_SYS_STATUS
+ */
+IMU_SYS_STATUS imu_system_init
     (
     void
     );
 
-/* Get the static variable mag_data_ready */
-bool imu_get_mag_data_ready
+/**
+ * @param  out: Destination for unified flight data.
+ * @return IMU_SYS_STATUS
+ */
+IMU_SYS_STATUS imu_system_update
     (
-    void
-    );
+    IMU_FlightData* out
+    ); /* non-blocking where backend allows */
 
-#ifdef A0002_REV2
-IMU_STATUS start_imu_read_IT(void);
-IMU_STATUS imu_it_handler();
-IMU_STATUS get_imu_it(IMU_RAW* cpy_ptr);
-#endif
-
-/* getter function for encapsulation */
-MAG_TRIM imu_get_mag_trim();
-
-#ifdef __cplusplus
-}
-#endif
 #endif /* IMU_H */
 
 /*******************************************************************************
