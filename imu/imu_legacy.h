@@ -230,43 +230,6 @@ typedef struct _IMU_RAW
     uint16_t    mag_hall;
     } IMU_RAW;
 
-/** @brief Processed/estimated vehicle attitude, rates, and kinematic state   */
-typedef struct _STATE_ESTIMATION 
-    {
-    float roll_angle;
-    float pitch_angle;
-    float yaw_angle;
-    float roll_rate;
-    float pitch_rate;
-    float yaw_rate;
-    float velocity;
-    float velo_x;
-    float velo_y;
-    float velo_z;     
-    float position;
-    } STATE_ESTIMATION;
-
-/** @brief Physical-unit converted accel/gyro/mag data                       */
-typedef struct _IMU_CONVERTED 
-    {
-    float accel_x;
-    float accel_y;
-    float accel_z;
-    float gyro_x ;
-    float gyro_y ;
-    float gyro_z ;
-    float mag_x ;
-    float mag_y ;
-    float mag_z ;
-    } IMU_CONVERTED;
-
-/** @brief Aggregate struct containing converted IMU data and state estimate */
-typedef struct _IMU_DATA 
-    {
-    IMU_CONVERTED imu_converted;
-    STATE_ESTIMATION state_estimate;
-    } IMU_DATA;
-
 /** @brief Per-axis accel/gyro zero-offset calibration values                */
 typedef struct _IMU_OFFSET 
     {

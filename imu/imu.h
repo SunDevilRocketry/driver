@@ -233,44 +233,6 @@
  Typdefs 
 ------------------------------------------------------------------------------*/
 
-/* Raw IMU data*/
-typedef struct _IMU_RAW {
-    int16_t    accel_x;
-    int16_t    accel_y;
-    int16_t    accel_z;
-    int16_t    gyro_x ;
-    int16_t    gyro_y ;
-    int16_t    gyro_z ;
-    int16_t    mag_x;
-    int16_t    mag_y;
-    int16_t    mag_z;
-    uint16_t    mag_hall;
-} IMU_RAW;
-
-typedef struct _IMU_CONVERTED {
-    float accel_x;
-    float accel_y;
-    float accel_z;
-    float gyro_x ;
-    float gyro_y ;
-    float gyro_z ;
-    float mag_x ;
-    float mag_y ;
-    float mag_z ;
-} IMU_CONVERTED;
-
-/* Struct containing imu offset */
-typedef struct _IMU_OFFSET {
-    float accel_x;
-    float accel_y;
-    float accel_z;
-    float gyro_x ;
-    float gyro_y ;
-    float gyro_z ;
-} IMU_OFFSET;
-
-/* Sensor Enable Configuration */
-typedef enum _IMU_SENSOR_ENABLE
 typedef struct 
     {
     float accel[3];         /* m/s^2 (SI)                           */
