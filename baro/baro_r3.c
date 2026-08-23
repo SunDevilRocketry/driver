@@ -119,7 +119,10 @@ static void update_state
     BARO_READ_STATE next_state
     );
 
-static BARO_STATUS crc_verify();
+static BARO_STATUS crc_verify
+    (
+    void
+    );
 
 /* Procedures ----------------------------------------------------------------*/
 
