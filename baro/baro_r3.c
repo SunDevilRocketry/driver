@@ -271,6 +271,83 @@ return baro_read_state == BARO_READ_DONE;
 }
 
 /**
+  * @brief Get barometer data if ready, in millibars and degrees celcius.
+  *
+  * @details If the data is ready, it will convert the data per calibration parameters,
+  * then populate it into the provided pointers. If not ready but in an OK state, it
+  * will return BARO_BUSY. Otherwise, it will return BARO_FAIL or another relevant fail
+  * condition.
+  *
+  * @retval Ready status
+  */
+BARO_STATUS baro_get_IT
+    (
+    float* pres_ptr,
+    float* temp_ptr
+    )
+{
+// TODO this code is likely to have a lot of edge cases relating to variable
+// overflow, type conversion, etcetera due to the requirements for pressure
+// and temperature calculation. We definitely want to look over this heavily
+// before flight. For now, consider most of the math in this function to be
+// somewhat pseudocode.
+    
+/* Detect any busy/fail conditions before conversion to floating point */
+if (!baro_get_baro_data_ready()){
+    if (baro_read_state == BARO_READ_FAIL){
+        return BARO_FAIL;
+    } else { /* Barometer still in valid state */
+        return BARO_BUSY;
+    }
+}
+
+/* This basically follows a calculation flowchart in the chip datasheet, and used 
+ * variable names inspired by the datasheet.
+ */
+
+/* Convert raws buffers into unsigned integers needed for datasheet calculation */
+uint32_t d1 = baro_raw_temp_buffer[0] << 16 + baro_raw_temp_buffer[1] << 8 + baro_raw_temp_buffer[2];
+uint32_t d2 = baro_raw_press_buffer[0] << 16 + baro_raw_press_buffer[1] << 8 + baro_raw_press_buffer[2];
+
+/* First, we calculate the base temperature */
+int32_t deltaT = d2 - baro_cal_data.par_c5*(2 << 8);
+int32_t temp = 2000 + deltaT * (baro_cal_data.par_c6 / (2 << 23));
+
+/* Then we do the datasheet's second order temperature compensation */
+/* We also begin calculating some variables used in pressure calculation */
+/* These variables want a 64 bit signed int */
+int64_t off = 0;
+int64_t sens = 0;
+if (temp < 2000){
+    int32_t t2 = deltaT*deltaT / (2 << 31);
+    int32_t temp_diff = temp - 2000;
+    temp_diff *= temp_diff;
+    off -= 61 * temp_diff / (2 << 4);
+    sens -= 2 * temp_diff;
+
+    if (temp < -1500){
+        temp_diff = temp + 1500;
+        temp_diff *= temp_diff;
+        off -= 15 * temp_diff;
+        sens -= 8 * temp_diff;
+    }
+
+    temp -= t2;
+}
+
+/* Now we start pressure calculations, including of the involved precursor constants */
+off += baro_cal_data.par_c2 * (2 << 17) + (baro_cal_data.par_c2 * deltaT) * baro_cal_data.par_c6 / (2 << 6);
+sens += baro_cal_data.par_c1 * (2 << 16) + (baro_cal_data.par_c3 * deltaT) / (2 << 7);
+int32_t p = (d1 * sens / (2 << 21) - off) / (2 << 15);
+
+/* Now we will put those values in the pointers */
+&pres_ptr = (float) p / 100.0;
+&temp_ptr = (float) temp / 100.0;
+
+return BARO_OK;
+}
+
+/**
   * @brief Initiate reading of baro via interrupt mode
   *
   * @details If baro_read_state is in a terminal state (OK or FAIL), this resets
