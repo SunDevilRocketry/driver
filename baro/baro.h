@@ -359,14 +359,15 @@ bool baro_get_baro_data_ready
     void 
     );
 
-BARO_STATUS baro_start_read_IT
-    (
-    void
-    );
 BARO_STATUS baro_get_IT
     (
     float* pres_ptr,
     float* temp_ptr
+    );
+
+BARO_STATUS baro_start_read_IT
+    (
+    void
     );
 
 #ifdef A0002_REV2
