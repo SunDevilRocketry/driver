@@ -94,12 +94,12 @@ static BARO_STATUS success;
  * I think we can create a TIM_OC_InitTypeDef, configure HAL_TIM_OC_ConfigChannel in a channel,
  * and then run HAL_TIM_OC_Start. Our callback is then HAL_TIM_OC_DelayElapsedCallback().
  */
-static BARO_STATUS create_timer_interrupt // TODO actually implement
+static BARO_STATUS create_timer_interrupt
     (
     uint32_t timeout_us
     );
 
-static BARO_STATUS clear_timer_interrupt // TODO actually implement
+static BARO_STATUS clear_timer_interrupt
     (
     void
     );
@@ -127,10 +127,12 @@ static BARO_STATUS crc_verify
 /* Procedures ----------------------------------------------------------------*/
 
 /* TODO
- * - write baro_init and its helpers
- * - write baro_get_IT (this is where the buffers will be converted to
+ * [X] write baro_init and its helpers
+ * [X] write baro_get_IT (this is where the buffers will be converted to
  *   usable values and calculations applied to return the final float)
- * - write the timer interrupt creation functions
+ * [X] write the timer interrupt creation functions
+ * [ ] Make sure SPI NSS is done correctly
+ * 
  */
 
 /**
@@ -414,12 +416,12 @@ return success;
  *
  * @retval The status of the barometer
  */
-static BARO_STATUS create_timer_interrupt // TODO actually implement
+static BARO_STATUS create_timer_interrupt
     (
     uint32_t timeout_us
     )
 {
-    // This uses output capture without changing pin
+    // This uses output capture/compare without changing pin
     // PSEUDOCODE
     // Create a TIM_OC_InitTypeDef
     // Set its pulse to __HAL_TIM_GET_COUNTER(&MICRO_TIM) + timeout_us
@@ -427,6 +429,59 @@ static BARO_STATUS create_timer_interrupt // TODO actually implement
     // etc...
     // Configure the given TIM channel with this.
     // Start the timer. Handlers are called in stm32h7xx_it.c
+
+    /* Configure the output compare-based delay  */
+    TIM_OC_InitTypeDef chip_delay;
+    chip_delay.OCMode = TIM_OCMODE_TIMING; /* Disable any pin toglges */
+    /* We do the modulo in order to consider the edge case that value is returned after timer wraparound */
+    chip_delay.Pulse = (__HAL_TIM_GET_COUNTER(&MICRO_TIM) + timeout_us) % MICRO_TIM.Init.Period;
+    
+    /* I don't think these truly matter, as they mostly relate to physical pins */
+    chip_delay.OCPolarity = TIM_OCPOLARITY_HIGH;
+    chip_delay.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+    chip_delay.OCFastMode = TIM_OCFAST_DISABLE;
+    chip_delay.OCIdleState = TIM_OCIDLESTATE_RESET;
+
+    /* Configure the TIM channel */
+    HAL_StatusTypeDef timer_success = HAL_TIM_OC_ConfigChannel(&MICRO_TIM, &chip_delay, BARO_TIM_CHANNEL);
+
+    if (timer_success != HAL_OK) {
+        return BARO_FAIL;
+    }
+    
+    /* Start the timer */
+    timer_success = HAL_TIM_OC_Start_IT(&MICRO_TIM, BARO_TIM_CHANNEL);
+
+    if(timer_success != HAL_OK) {
+        return BARO_FAIL;
+    }
+
+    return BARO_OK;
+}
+
+/**
+ * @brief Clears an existing timer interrupt
+ *
+ * @details Should be called after a timer event is received to disable the delay.
+ * If this wasn't called, the output compare for the same event could theoretically be
+ * fired multiple times (every timer period ellapse). In practice, the 71.5 minute
+ * period of our microseconds timer makes this outcome unlikely, as the barometer
+ * should have timed out well before then, but we do it as good practice.
+ *
+ * @retval The status of the barometer
+ */
+static BARO_STATUS clear_timer_interrupt
+    (
+    void
+    )
+{
+HAL_StatusTypeDef timer_success = HAL_TIM_OC_Stop_IT(&MICRO_TIM, BARO_TIM_CHANNEL);
+
+if (timer_success != HAL_OK) {
+    return BARO_FAIL;
+}
+
+return BARO_OK;
 }
 
 /**
