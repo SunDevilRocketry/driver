@@ -30,10 +30,15 @@ extern "C" {
 
 #include "stm32h7xx_hal.h"
 
+#ifdef A0010
+#include "sdr_pin_defines_A0010.h"
+#endif
+
 /*------------------------------------------------------------------------------
  Macros 
 ------------------------------------------------------------------------------*/
 
+#ifdef A0002_REV2
 /* I2C Device Params */
 #define BARO_I2C_ADDR	    ( 0x76 << 1 )	/* 1110110 -> 0x76 */
 
@@ -80,7 +85,7 @@ extern "C" {
 /* Baro sensor command codes */
 #define BARO_CMD_RESET          ( 0xB6 )
 #define BARO_CMD_FIFO_FLUSH     ( 0xB0 )
-
+#endif
 
 /*------------------------------------------------------------------------------
  Typdefs 
@@ -95,9 +100,18 @@ typedef enum _BARO_STATUS
 	BARO_UNRECOGNIZED_HAL_STATUS,
 	BARO_UNSUPPORTED_CONFIG     ,
 	BARO_UNRECOGNIZED_CHIP_ID   ,
+	#ifdef A00100               ,
+	/* If the CRC check on r3 baro memory fails */
+	BARO_INVALID_PROM,
+	#endif
 	BARO_ERROR                  ,
 	BARO_CAL_ERROR              ,
+	#ifdef A0002_REV2
 	BARO_I2C_ERROR              ,
+	#endif
+	#ifdef A0010
+	BARO_SPI_ERROR              ,
+	#endif
 	BARO_CANNOT_RESET           ,
 	BARO_FIFO_ERROR				,
 	BARO_BUSY
@@ -112,6 +126,23 @@ typedef enum _BARO_SENSOR_ENABLES
 	BARO_PRESS_TEMP_ENABLED = 3
 	} BARO_SENSOR_ENABLES;
 
+#ifdef A0010
+/* Interrupt events for R3 version of driver.
+ * Takes similar approach to telemetry in mod.
+ * Events are in order of when they occure.
+ * Some events occur multiple times per 
+ * data acquisition cycle.
+ */
+typedef enum _BARO_EVENT 
+    {
+    BARO_EVENT_START_READ = 0,
+    BARO_EVENT_TX_CPLT,
+    BARO_EVENT_DELAY_ELAPSED,
+    BARO_EVENT_TXRX_CPLT
+    } BARO_EVENT;
+#endif
+
+#ifdef A0002_REV2
 /* Operating mode of baro sensor */
 typedef enum _BARO_MODE
 	{
@@ -119,29 +150,52 @@ typedef enum _BARO_MODE
 	BARO_FORCED_MODE = 1,
 	BARO_NORMAL_MODE = 3
 	} BARO_MODE;
-
+#endif
+	
 /* Pressure Sensor Oversampling Settings */
 typedef enum _BARO_PRESS_OSR_SETTING
 	{
+	#ifdef A0002_REV2
 	BARO_PRESS_OSR_X1 = 0,
     BARO_PRESS_OSR_X2    ,
 	BARO_PRESS_OSR_X4    ,
 	BARO_PRESS_OSR_X8    ,
 	BARO_PRESS_OSR_X16   ,
 	BARO_PRESS_OSR_X32
+	#endif
+	/* Prevent any possibility that vals get misinterpreted between revs */
+	#ifdef A0010
+	BARO_PRESS_OSR_X256 = 6,
+	BARO_PRESS_OSR_X512    ,
+	BARO_PRESS_OSR_X1024   ,
+	BARO_PRESS_OSR_X2048   ,
+	BARO_PRESS_OSR_X4096
+	#endif
 	} BARO_PRESS_OSR_SETTING;
 
 /* Temperature Sensor Oversampling Settings */
 typedef enum _BARO_TEMP_OSR_SETTING
 	{
+	#ifdef A0002_REV2
 	BARO_TEMP_OSR_X1 = 0,
     BARO_TEMP_OSR_X2    ,
 	BARO_TEMP_OSR_X4    ,
 	BARO_TEMP_OSR_X8    ,
 	BARO_TEMP_OSR_X16   ,
 	BARO_TEMP_OSR_X32
+	#endif
+	/* Prevent any possibility that vals get misinterpreted between revs */
+	#ifdef A0010
+	BARO_TEMP_OSR_X256 = 6,
+	BARO_TEMP_OSR_X512    ,
+	BARO_TEMP_OSR_X1024   ,
+	BARO_TEMP_OSR_X2048   ,
+	BARO_TEMP_OSR_X4096
+	#endif
 	} BARO_TEMP_OSR_SETTING;
 
+
+#ifdef A0002_REV2
 /* Sample Frequency settings */
 typedef enum _BARO_ODR_SETTING
 	{
@@ -168,15 +222,13 @@ typedef enum _BARO_IIR_SETTING
 	BARO_IIR_COEF_63  = 6,
 	BARO_IIR_COEF_127 = 7 
 	} BARO_IIR_SETTING;
-
+#endif
+	
 /* Baro sensor configuration settings struct */
 typedef struct _BARO_CONFIG
 	{
 	/* Sensor enables */
 	BARO_SENSOR_ENABLES enable;
-
-	/* Operating mode */
-	BARO_MODE mode;
 
 	/* Pressure Oversampling setting  */
 	BARO_PRESS_OSR_SETTING press_OSR_setting;
@@ -184,14 +236,25 @@ typedef struct _BARO_CONFIG
 	/* Temperature Oversampling setting */
 	BARO_TEMP_OSR_SETTING temp_OSR_setting;
 
+	#ifdef A0002_REV2
+	/* Operating mode */
+	BARO_MODE mode;
+	
 	/* Sampling frequency */
 	BARO_ODR_SETTING ODR_setting;
 
 	/* IIR Filter Coefficient Selection */
 	BARO_IIR_SETTING IIR_setting;
-
+	#endif
 	} BARO_CONFIG;
 
+
+/* These structs are static to the rev3 implementation.
+* They should be for rev2 as well, but aren't.
+* I'm leaving it this way for rev2 code because emulator
+* depends on it.
+*/
+#ifdef A0002_REV2
 /* Baro calibration data struct in integer format */
 typedef struct _BARO_CAL_DATA_INT
 	{
@@ -239,7 +302,7 @@ typedef struct _BARO_CAL_DATA
 	float comp_temp;
 
 	} BARO_CAL_DATA;
-
+#endif
 
 /*------------------------------------------------------------------------------
  Function Prototypes 
@@ -250,20 +313,27 @@ BARO_STATUS baro_init
 	(
 	BARO_CONFIG* config_ptr
 	);
-	
-/* Configure/intialize the barometric pressure sensor */
-BARO_STATUS baro_config
-	(
-	BARO_CONFIG* config_ptr 
-	);
 
+#ifdef A0002_REV2
 /* verifies sensor can be accessed */
 BARO_STATUS baro_get_device_id
 	(
    	uint8_t* baro_id 
 	);
+#endif
 
+#ifdef A0010
+/* verifies sensor can be accessed */
+/* The serial is 12 bits on the rev 3 sensor */
+BARO_STATUS baro_get_device_id
+	(
+   	uint8_t* baro_id 
+   	uint16_t* baro_id
+	);
+#endif
 
+/* Blocking implementations are not supported on r3 */
+#ifdef A0002_REV2
 /* gets pressure data from sensor */
 BARO_STATUS baro_get_pressure
 	(
@@ -281,16 +351,42 @@ BARO_STATUS baro_get_altitude
 	(
     void
 	);
-
+#endif
+	
 /* returns the baro_data_ready flag */
 bool baro_get_baro_data_ready
     (
     void 
     );
 
-BARO_STATUS start_baro_read_IT();
-BARO_STATUS baro_IT_handler();
-BARO_STATUS get_baro_it(float* pres_ptr, float* temp_ptr);
+BARO_STATUS baro_get_IT
+    (
+    float* pres_ptr,
+    float* temp_ptr
+    );
+
+BARO_STATUS baro_start_read_IT
+    (
+    void
+    );
+
+#ifdef A0002_REV2
+BARO_STATUS baro_IT_handler
+    (
+    void
+    );
+#endif
+#ifdef A0010
+/* R3 baro has more complicated data acquisition sequence.
+ * We thus need to prevent various race conditions;
+ * this required making a breaking API change.
+ * The approach is very similar to the telemetry module.
+ */
+BARO_STATUS baro_IT_handler
+    (
+    BARO_EVENT update_cause;
+    );
+#endif
 
 
 #ifdef __cplusplus
