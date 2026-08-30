@@ -128,7 +128,7 @@ static BARO_STATUS crc_verify
 
 /* TODO
  * [X] write baro_init and its helpers
- * [X] write baro_get_IT (this is where the buffers will be converted to
+ * [ ] write baro_get_IT (this is where the buffers will be converted to
  *   usable values and calculations applied to return the final float)
  * [X] write the timer interrupt creation functions
  * [ ] Make sure SPI NSS is done correctly
