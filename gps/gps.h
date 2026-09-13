@@ -15,7 +15,11 @@
 *       If no LICENSE file comes with this software, it is covered under the   
 *       BSD-3-Clause.                                                          
 *                                                                              
-*       https://opensource.org/license/bsd-3-clause          
+*       https://opensource.org/license/bsd-3-clause        
+*
+* NOTE:
+*       GPS NMEA message descriptions are taken from Trimble Alloy Help,
+*       https://receiverhelp.trimble.com/alloy-gnss/en-us/NMEA-0183messages_MessageOverview.html
 *
 *******************************************************************************/
 
@@ -84,6 +88,19 @@ typedef enum GPS_STATUS
     GPS_FAIL  ,
 	GPS_TIMEOUT
 	} GPS_STATUS;
+
+
+/* NMEA message types */
+typedef enum _GPS_NMEA_MSG_TYPE
+    {
+    NMEA_MSG_GGA,  /* Time, position, and fix related data                             */
+    NMEA_MSG_GLL,  /* Position data: position fix, time of position fix, and status    */
+    NMEA_MSG_GSA,  /* GPS DOP and active satellites                                    */
+    NMEA_MSG_GSV,  /* Number of SVs in view, PRN, elevation, azimuth, and SNR          */
+    NMEA_MSG_RMC,  /* Position, Velocity, and Time                                     */
+    NMEA_MSG_VTG,  /* Actual track made good and speed over ground                     */
+    NMEA_MSG_UNSUPPORTED
+} GPS_NMEA_MSG_TYPE;
 
 
 /*------------------------------------------------------------------------------
