@@ -188,11 +188,6 @@ void gps_conv_latitude_longitude
     GPS_DATA* data 
     );
 
-void gps_listener  
-    (
-    void    
-    );
-
 #ifdef __cplusplus
 }
 #endif

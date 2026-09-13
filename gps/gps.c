@@ -57,6 +57,7 @@
 /*------------------------------------------------------------------------------
  Preprocesor Directives 
 ------------------------------------------------------------------------------*/
+#define DFLT_GPS_TIMEOUT 100u
 
 /*------------------------------------------------------------------------------
  Internal function prototypes 
@@ -318,7 +319,7 @@ GPS_STATUS rx_status;
 ------------------------------------------------------------------------------*/
 rx_status = gps_receive( ack_buffer,
                             sizeof( ack_buffer ),
-                            GPS_TIMEOUT);
+                            DFLT_GPS_TIMEOUT);
 
 if ( rx_status != GPS_OK)
     {
@@ -419,11 +420,11 @@ GPS_STATUS gps_status;
 if ( toggle == 1 ) {
     gps_status = gps_transmit( nmea_enable, 
                                 sizeof( nmea_enable )  , 
-                                GPS_TIMEOUT );
+                                DFLT_GPS_TIMEOUT );
 } else {
     gps_status = gps_transmit( nmea_disable, 
                                 sizeof( nmea_disable )  , 
-                                GPS_TIMEOUT );
+                                DFLT_GPS_TIMEOUT );
 }
 
 /* Return GPS status */
@@ -490,7 +491,7 @@ GPS_STATUS gps_status;
 /* Transmit config */
 gps_status = gps_transmit( antenna_config, 
                                 sizeof( antenna_config )  , 
-                                GPS_TIMEOUT );
+                                DFLT_GPS_TIMEOUT );
 
 /* Return GPS status */
 if ( gps_status != GPS_OK )
@@ -538,7 +539,7 @@ uint8_t baud_config[] =
     0x00, 0x10, 0x0E, 0x00,     /* 921600 (little endian)                    */
 
     /* Checksum */
-    0xE8, 0x99
+    0x4E, 0xA9
     };
 GPS_STATUS gps_status;
 
@@ -549,7 +550,7 @@ GPS_STATUS gps_status;
 /* Transmit config */
 gps_status = gps_transmit( baud_config, 
                                 sizeof( baud_config )  , 
-                                GPS_TIMEOUT );
+                                DFLT_GPS_TIMEOUT );
 
 /* Return HAL status */
 if ( gps_status != GPS_OK )
@@ -627,7 +628,7 @@ int gps_mesg_validate(char *nmeastr){
 *       helpers are updated, make sure the test cases are updated to match.    *
 *                                                                              *
 *******************************************************************************/
-void GPS_parse(GPS_DATA* gps_ptr, char *GPSstrParse){// TODO: edit to support talker ID N and P 
+void GPS_parse(GPS_DATA* gps_ptr, char *GPSstrParse){ 
 /* Get message type */
 char token[8]; // Needs to be 8 chars for memory alignment
 strncpy(token, GPSstrParse, 6);
@@ -865,7 +866,7 @@ data->dec_longitude = longitude;
 /*------------------------------------------------------------------------------
  Internal procedures 
 ------------------------------------------------------------------------------*/
-
+// doc comment todo
 static GPS_NMEA_MSG_TYPE parse_token
     (
     char* nmea_token
@@ -885,7 +886,6 @@ else message_type = NMEA_MSG_UNSUPPORTED;
 
 return message_type;
 }
-
 
 
 /*******************************************************************************
