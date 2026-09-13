@@ -58,8 +58,12 @@
 ------------------------------------------------------------------------------*/
 
 /*------------------------------------------------------------------------------
-Global Variables                                                                  
+ Internal function prototypes 
 ------------------------------------------------------------------------------*/
+static GPS_STATUS mcu_reconfig_baud
+    (
+    void
+    );
 
 /*------------------------------------------------------------------------------
  Local Variables
@@ -107,7 +111,19 @@ if ( gps_status != GPS_OK )
     return gps_status;
     }
 
-gps_status = gps_config_baud();
+gps_status = gps_config_baud();  /* Set baudrate to 921600 on GPS */
+if ( gps_status != GPS_OK )
+    {
+    return gps_status;
+    }
+
+gps_status = mcu_reconfig_baud(); /* Set baudrate to 921600 on MCU GPS UART */
+if ( gps_status != GPS_OK )
+    {
+    return gps_status;
+    }
+
+gps_status = gps_nmea_toggle(1); /* NMEA enable */
 if ( gps_status != GPS_OK )
     {
     return gps_status;
@@ -835,6 +851,37 @@ if (data->ew == 'W') {
 data->dec_latitude = latitude;
 data->dec_longitude = longitude;
 } /* gps_conv_latitude_longitude */
+
+
+/*******************************************************************************
+*                                                                              *
+* PROCEDURE:                                                                   * 
+* 		mcu_reconfig_baud                                                      *
+*                                                                              *
+* DESCRIPTION:                                                                 * 
+* 		Reconfigures the MCU's baudrate to match the GPS chip                  *
+*                                                                              *
+*******************************************************************************/
+static GPS_STATUS mcu_reconfig_baud
+    (
+    void
+    )
+{
+HAL_StatusTypeDef hal_status;
+
+HAL_UART_DeInit(&GPS_HUART);
+GPS_HUART.Init.BaudRate = 921600;
+hal_status = HAL_UART_Init(&GPS_HUART);
+
+if ( hal_status != HAL_OK )
+	{
+	return GPS_FAIL;
+	}
+else
+	{
+	return GPS_OK;
+	}
+}
 
 /*******************************************************************************
 * END OF FILE                                                                  * 
