@@ -28,8 +28,8 @@ OPT   = -Og
 BUILD_DIR = build
 
 # base directory (this Makefile lives in driver/_test/driver/onboard_flash)
-ROOT_DIR  = ../../../../
-DRIVER_DIR = ../../../
+ROOT_DIR  = ../../../..
+DRIVER_DIR = ../../..
 
 ################################################################
 # source
@@ -50,6 +50,10 @@ $(DRIVER_DIR)/_test/framework/src/test_assert.c                  \
 $(DRIVER_DIR)/_test/framework/src/test_runner.c
 
 C_SOURCES = $(TEST_SOURCES) $(COV_C_SOURCES) $(FRAMEWORK_SOURCES)
+
+# Match each source's parent directory and basename so test files with the
+# same basename cannot be included accidentally.
+COV_FILTERS = $(foreach source,$(COV_C_SOURCES),--filter '.*$(notdir $(patsubst %/,%,$(dir $(source))))/$(notdir $(source))')
 
 ################################################################
 # Compiler
@@ -83,29 +87,48 @@ CFLAGS += -Wno-int-to-pointer-cast
 CFLAGS += -Wno-unused-function
 CFLAGS += -Wno-unused-variable
 
+# Get coverage report
 CFLAGS += -ftest-coverage
 CFLAGS += -fprofile-arcs
+CFLAGS += -ffile-prefix-map=$(shell pwd)/=
+
+ifeq ($(DEBUG), 1)
+CFLAGS += -DDEBUG
+else
+CFLAGS += -DRELBLD
+endif
 
 ################################################################
 # Build all
 ################################################################
-all: clean $(BUILD_DIR)/$(TARGET)
+# Build the executable. The test target removes stale coverage artifacts
+# before invoking this target.
+all: $(BUILD_DIR)/$(TARGET)
 
+# Setup the path for c files
 OBJECTS = $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o)))
 vpath %.c $(sort $(dir $(C_SOURCES)))
 
+# Compile
 $(BUILD_DIR)/%.o: %.c $(BUILD_DIR)
-	$(CC) -c $(CFLAGS) $< -o $@
+	@if command -v cygpath >/dev/null 2>&1; then \
+		$(CC) -c $(CFLAGS) "$$(cygpath -w "$$(realpath "$<")")" -o $@; \
+	else \
+		$(CC) -c $(CFLAGS) "$<" -o $@; \
+	fi
 
-$(BUILD_DIR)/$(TARGET): $(OBJECTS)
+# Link
+$(BUILD_DIR)/$(TARGET): $(OBJECTS) 
 	$(CC) $(OBJECTS) -o $@ -lgcov -lm
 
 $(BUILD_DIR):
-	mkdir $@
+	mkdir $@		
 
 ################################################################
 # Build test
 ################################################################
+
+# Compile test, execute, and generate results
 test:
 	@echo THIS TEST MUST BE EXECUTED IN A BASH TERMINAL. CMD/PS do not work.
 	-rm -fR $(BUILD_DIR)
@@ -113,8 +136,9 @@ test:
 	$(BUILD_DIR)/$(TARGET)
 	tail -n 7 "results.txt"
 	mkdir -p coverage
-	gcovr --filter $(COV_C_SOURCES) --html-details coverage/coverage.html
-
+	gcovr $(BUILD_DIR) $(COV_FILTERS) \
+		--html-details coverage/coverage.html \
+		--json coverage/coverage.json
 ################################################################
 # clean up
 ################################################################

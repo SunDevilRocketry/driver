@@ -13,6 +13,20 @@
 
 #include "stm32h7xx_hal.h"
 #include "error_sdr.h"
+#include "onboard_flash.h"
+
+static uint32_t injected_failure_word = UINT32_MAX;
+static uint32_t written_word_count;
+ERROR_CODE      last_error_code;
+
+void onboard_flash_test_fail_on_word
+    (
+    uint32_t word_number
+    )
+{
+injected_failure_word = word_number;
+written_word_count = 0;
+}
 
 void HAL_FLASH_Unlock
     (
@@ -33,7 +47,7 @@ void error_fail_fast
     volatile ERROR_CODE error_code
     )
 {
-    (void)error_code;
+last_error_code = error_code;
 }
 
 /* ARM CMSIS intrinsics are not available on x86_64 host gcc */
@@ -56,6 +70,12 @@ void __DSB
     void
     )
 {
+if ( written_word_count == injected_failure_word )
+    {
+    FLASH_SR1 |= FLASH_SR1_ERRORS;
+    }
+
+written_word_count++;
 }
 
 /*******************************************************************************
