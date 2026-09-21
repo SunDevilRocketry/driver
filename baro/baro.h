@@ -325,15 +325,8 @@ BARO_STATUS baro_get_device_id
    	uint8_t* baro_id 
 	);
 #endif
-
-#ifdef A0010
-/* verifies sensor can be accessed */
-/* The serial is 12 bits on the rev 3 sensor */
-BARO_STATUS baro_get_device_id
-	(
-   	uint16_t* baro_id
-	);
-#endif
+/* The above is redundant on rev3, as we have a CRC check */
+/* Thus, we don't implement it. */
 
 /* Blocking implementations are not supported on r3 */
 #ifdef A0002_REV2
