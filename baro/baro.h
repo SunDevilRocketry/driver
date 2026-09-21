@@ -19,6 +19,10 @@
 *
 *******************************************************************************/
 
+/*------------------------------------------------------------------------------
+ Standard Includes                                                                     
+------------------------------------------------------------------------------*/
+#include <stdbool.h>
 
 /* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef BARO_H 
@@ -100,7 +104,7 @@ typedef enum _BARO_STATUS
 	BARO_UNRECOGNIZED_HAL_STATUS,
 	BARO_UNSUPPORTED_CONFIG     ,
 	BARO_UNRECOGNIZED_CHIP_ID   ,
-	#ifdef A00100               ,
+	#ifdef A0010
 	/* If the CRC check on r3 baro memory fails */
 	BARO_INVALID_PROM,
 	#endif
@@ -327,7 +331,6 @@ BARO_STATUS baro_get_device_id
 /* The serial is 12 bits on the rev 3 sensor */
 BARO_STATUS baro_get_device_id
 	(
-   	uint8_t* baro_id 
    	uint16_t* baro_id
 	);
 #endif
@@ -384,7 +387,7 @@ BARO_STATUS baro_IT_handler
  */
 BARO_STATUS baro_IT_handler
     (
-    BARO_EVENT update_cause;
+    BARO_EVENT update_cause
     );
 #endif
 

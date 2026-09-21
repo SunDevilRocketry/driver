@@ -228,19 +228,19 @@ switch(baro_configuration.temp_OSR_setting)
 
     for( int coeff = 1; coeff < 6; coeff += 1 ) {
         /* The first byte is the calculated PROM read command, and second is filler byte */
-        uint8_t transmit_buffer[2] = {0xA0 + coeff << 1, 0xFF};
+        uint8_t transmit_buffer[2] = {0xA0 + (coeff << 1), 0xFF};
         uint8_t receive_buffer[2];
 
         /* Do the read */
         // TODO do more proper timeout
-        read_success = HAL_SPI_TransmitReceive(BARO_SPI, transmit_buffer, receive_buffer, 2, 2000);
+        read_success = HAL_SPI_TransmitReceive(&(BARO_SPI), transmit_buffer, receive_buffer, 2, 2000);
 
         if( read_success != HAL_OK ) {
             return BARO_FAIL; /* SPI communication failure */
         }
 
         /* Turn it into a usable format */
-        coeffs[coeff - 1] = receive_buffer[0] << 8 + receive_buffer[1];
+        coeffs[coeff - 1] = (receive_buffer[0] << 8) + receive_buffer[1];
     }
 
     /* Set the calibration coefficients */
@@ -290,7 +290,7 @@ BARO_STATUS baro_get_IT
 // overflow, type conversion, etcetera due to the requirements for pressure
 // and temperature calculation. We definitely want to look over this heavily
 // before flight. For now, consider most of the math in this function to be
-// somewhat pseudocode.
+// pseudocode that happens to compile.
     
 /* Detect any busy/fail conditions before conversion to floating point */
 if (!baro_get_baro_data_ready()){
@@ -306,8 +306,8 @@ if (!baro_get_baro_data_ready()){
  */
 
 /* Convert raws buffers into unsigned integers needed for datasheet calculation */
-uint32_t d1 = baro_raw_temp_buffer[0] << 16 + baro_raw_temp_buffer[1] << 8 + baro_raw_temp_buffer[2];
-uint32_t d2 = baro_raw_press_buffer[0] << 16 + baro_raw_press_buffer[1] << 8 + baro_raw_press_buffer[2];
+uint32_t d1 = (baro_raw_temp_buffer[0] << 16) + (baro_raw_temp_buffer[1] << 8) + baro_raw_temp_buffer[2];
+uint32_t d2 = (baro_raw_press_buffer[0] << 16) + (baro_raw_press_buffer[1] << 8) + baro_raw_press_buffer[2];
 
 /* First, we calculate the base temperature */
 int32_t deltaT = d2 - baro_cal_data.par_c5*(2 << 8);
@@ -319,7 +319,7 @@ int32_t temp = 2000 + deltaT * (baro_cal_data.par_c6 / (2 << 23));
 int64_t off = 0;
 int64_t sens = 0;
 if (temp < 2000){
-    int32_t t2 = deltaT*deltaT / (2 << 31);
+    int32_t t2 = deltaT*deltaT / (1 << 31);
     int32_t temp_diff = temp - 2000;
     temp_diff *= temp_diff;
     off -= 61 * temp_diff / (2 << 4);
@@ -341,8 +341,8 @@ sens += baro_cal_data.par_c1 * (2 << 16) + (baro_cal_data.par_c3 * deltaT) / (2 
 int32_t p = (d1 * sens / (2 << 21) - off) / (2 << 15);
 
 /* Now we will put those values in the pointers */
-&pres_ptr = (float) p / 100.0;
-&temp_ptr = (float) temp / 100.0;
+*pres_ptr = (float) p / 100.0;
+*temp_ptr = (float) temp / 100.0;
 
 return BARO_OK;
 }
@@ -368,12 +368,13 @@ switch ( baro_read_state )
 
     case BARO_READ_DONE: // No currently running read
         baro_read_state = BARO_CONV_PRESSURE;
-        baro_IT_handler(BARO_START_READ); // Keep FSM logic in that function
+        baro_IT_handler(BARO_EVENT_START_READ); // Keep FSM logic in that function
         break;
 
     default: // Read in progress
-        return BARO_BUSY;
+        break;
     }
+    return BARO_BUSY;
 }
 
 /**
@@ -398,7 +399,7 @@ switch(baro_read_state) {
         if( update_cause != BARO_EVENT_START_READ )
             {
             /* Do nothing */
-            return;
+            return BARO_BUSY;
             }
         // 1. Called by baro_start_read_IT, start pressure conversion
         success = transmit_cmd_IT(pressure_cmd);
@@ -408,7 +409,7 @@ switch(baro_read_state) {
         if( update_cause != BARO_EVENT_TX_CPLT )
             {
             /* Do nothing */
-            return;
+            return BARO_BUSY;
             }
         // 2. Called by SPI_TxCpltCallback(), create pressure conversion timeout
         success = create_timer_interrupt(pressure_timeout);
@@ -418,7 +419,7 @@ switch(baro_read_state) {
         if( update_cause != BARO_EVENT_DELAY_ELAPSED )
             {
             /* Do nothing */
-            return;
+            return BARO_BUSY;
             }
         // 3. Called by HAL_TIM_OC_DelayElapsedCallback(), press temp ADC read
         clear_timer_interrupt();
@@ -429,7 +430,7 @@ switch(baro_read_state) {
         if( update_cause != BARO_EVENT_TXRX_CPLT )
             {
             /* Do nothing */
-            return;
+            return BARO_BUSY;
             }
         // 4. Called by HAL_SPI_TxRxCpltCallback(), start temperature conversion
         success = transmit_cmd_IT(temperature_cmd);
@@ -439,7 +440,7 @@ switch(baro_read_state) {
         if( update_cause != BARO_EVENT_TX_CPLT )
             {
             /* Do nothing */
-            return;
+            return BARO_BUSY;
             }
         // 5. Called by SPI_TxCpltCallback(), create temp conversion timeout
         success = create_timer_interrupt(temperature_timeout);
@@ -449,7 +450,7 @@ switch(baro_read_state) {
         if( update_cause != BARO_EVENT_DELAY_ELAPSED )
             {
             /* Do nothing */
-            return;
+            return BARO_BUSY;
             }
         // 6. Called by HAL_TIM_OC_DelayElapsedCallback(), run temp ADC read
         clear_timer_interrupt();
@@ -460,7 +461,7 @@ switch(baro_read_state) {
         if( update_cause != BARO_EVENT_TXRX_CPLT )
             {
             /* Do nothing */
-            return;
+            return BARO_BUSY;
             }
         // 7. Called by HAL_SPI_TxRxCpltCallback(), switch to done state.
         success = BARO_OK;
@@ -574,7 +575,7 @@ static BARO_STATUS transmit_cmd_IT
     )
 {
 HAL_StatusTypeDef success;
-success = HAL_SPI_Transmit_IT(BARO_SPI, &command_byte, 1);
+success = HAL_SPI_Transmit_IT(&(BARO_SPI), &command_byte, 1);
 
 if( success == HAL_OK ){
     return BARO_OK;
@@ -602,7 +603,7 @@ static BARO_STATUS transceive_adc_IT
 uint8_t in_buffer[3] = {0x00, 0xFF, 0xFF};
 
 HAL_StatusTypeDef success;
-success = HAL_SPI_TransmitReceive_IT(BARO_SPI, &in_buffer, &out_buffer, 3);
+success = HAL_SPI_TransmitReceive_IT(&(BARO_SPI), in_buffer, out_buffer, 3);
 
 if( success == HAL_OK ){
     return BARO_OK;
@@ -636,7 +637,7 @@ else
  *
  * @retval PROM validity status
  */
-static void crc_verify
+static BARO_STATUS crc_verify
     (
     void
     )
@@ -644,10 +645,10 @@ static void crc_verify
 /* Read the PROM */
 uint16_t prom[8];
 for ( int addr = 0; addr < 8; addr++ ) {
-    uint8_t transmit_buffer[2] = {0xA0 + addr << 1, 0xFF};
+    uint8_t transmit_buffer[2] = {0xA0 + (addr << 1), 0xFF};
     uint8_t receive_buffer[2];
 
-    HAL_SPI_TransmitReceive(BARO_SPI, transmit_buffer, receive_buffer, 2, 2000);
+    HAL_SPI_TransmitReceive(&(BARO_SPI), transmit_buffer, receive_buffer, 2, 2000);
 
     /* Concatenate buffer result and put it into the prom array */
     prom[addr] = ( receive_buffer[0] << 8 ) + receive_buffer[1];
