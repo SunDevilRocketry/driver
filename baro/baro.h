@@ -104,10 +104,6 @@ typedef enum _BARO_STATUS
 	BARO_UNRECOGNIZED_HAL_STATUS,
 	BARO_UNSUPPORTED_CONFIG     ,
 	BARO_UNRECOGNIZED_CHIP_ID   ,
-	#ifdef A0010
-	/* If the CRC check on r3 baro memory fails */
-	BARO_INVALID_PROM,
-	#endif
 	BARO_ERROR                  ,
 	BARO_CAL_ERROR              ,
 	#ifdef A0002_REV2
@@ -119,6 +115,10 @@ typedef enum _BARO_STATUS
 	BARO_CANNOT_RESET           ,
 	BARO_FIFO_ERROR				,
 	BARO_BUSY
+	#ifdef A0010                ,
+	/* If the CRC check on r3 baro memory fails */
+	BARO_INVALID_PROM
+	#endif
 	} BARO_STATUS;
 
 /* Sensor enable encodings */
