@@ -114,8 +114,8 @@ typedef enum _BARO_STATUS
 	#endif
 	BARO_CANNOT_RESET           ,
 	BARO_FIFO_ERROR				,
-	BARO_BUSY
-	#ifdef A0010                ,
+	BARO_BUSY                   ,
+	#ifdef A0010
 	/* If the CRC check on r3 baro memory fails */
 	BARO_INVALID_PROM
 	#endif
