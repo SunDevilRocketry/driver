@@ -18,3 +18,10 @@
 *       https://opensource.org/license/bsd-3-clause          
 *
 *******************************************************************************/
+
+/* How it works, studying the BMM350 driver:
+ * - You read the 32 byte OTP ROM on startup
+ * - You do an I2C burst read of X, Y, Z, and temp (used for compensation)
+ * - You read compensation coefficents from the OTP ROM
+ * - You apply them and pass back the result
+ */
