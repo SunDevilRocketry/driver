@@ -4,7 +4,8 @@
 * 		mag.h
 *
 * DESCRIPTION: 
-* 		Contains API functions for A0010 (rev3 Flight Computer) magnetometer
+* 		Contains API functions for A0010 (rev3 Flight Computer) BMM350 
+*       magnetometer
 *
 * COPYRIGHT:                                                                   
 *       Copyright (c) 2026 Sun Devil Rocketry.                                 
@@ -25,3 +26,74 @@
  * - You read compensation coefficents from the OTP ROM
  * - You apply them and pass back the result
  */
+
+/* Set pad driver strength (See BMM350 Datasheet section 5.6) */
+typedef enum _MAG_PAD_CTRL
+    {
+    MAG_PAD_CTRL_0       = 0x0,
+    MAG_PAD_CTRL_1       = 0x1,
+    MAG_PAD_CTRL_2       = 0x2,
+    MAG_PAD_CTRL_3       = 0x3,
+    MAG_PAD_CTRL_4       = 0x4,
+    MAG_PAD_CTRL_5       = 0x5,
+    MAG_PAD_CTRL_6       = 0x6,
+    MAG_PAD_CTRL_7       = 0x7,
+    MAG_PAD_CTRL_DEFAULT = 0x7 /* Same as MAG_PAD_CTRL_7 */
+    } MAG_PAD_CTRL;
+
+/* Sensor sampling rates */
+typedef enum _MAG_ODR
+    {
+    MAG_ODR_400HZ    = 0x2,
+    MAG_ODR_200HZ    = 0x3,
+    MAG_ODR_100HZ    = 0x4,
+    MAG_ODR_50HZ     = 0x5,
+    MAG_ODR_25HZ     = 0x6,
+    MAG_ODR_12_5HZ   = 0x7,
+    MAG_ODR_6_25HZ   = 0x8,
+    MAG_ODR_3_125HZ  = 0x9,
+    MAG_ODR_1_5625HZ = 0xa
+    } MAG_ODR;
+
+/* Sensor measurement averaging settings */
+typedef enum _MAG_AVG
+    {
+    MAG_AVG_0 = 0x0, /* No averaging */
+    MAG_AVG_2 = 0x1, /* Of two samples */
+    MAG_AVG_4 = 0x2, /* Of four samples */
+    MAG_AVG_8 = 0x3, /* Of eight samples */
+    } MAG_AVG;
+
+/* Axis enablement settings */
+typedef enum _MAG_AXIS_X
+    {
+    MAG_AXIS_X_DISABLED = 0,
+    MAG_AXIS_X_ENABLED = 1
+    } MAG_AXIS_X;
+
+typedef enum _MAG_AXIS_Y
+    {
+    MAG_AXIS_Y_DISABLED = 0,
+    MAG_AXIS_Y_ENABLED = 1
+    } MAG_AXIS_Y;
+
+typedef enum _MAG_AXIS_Z
+    {
+    MAG_AXIS_Z_DISABLED = 0,
+    MAG_AXIS_Z_ENABLED = 1
+    } MAG_AXIS_Z;
+
+/* Magnetometer config struct */
+typedef struct _MAG_CONFIG
+    {
+    MAG_PAD_CTRL pad_ctrl;
+
+    /* Sampling settings */
+    MAG_ODR odr;
+    MAG_AVG avg;
+
+    /* Axis Enablement Settings */
+    MAG_AXIS_X axis_x;
+    MAG_AXIS_Y axis_y;
+    MAG_AXIS_Z axis_z;
+    } MAG_CONFIG;
