@@ -1,24 +1,20 @@
-/*******************************************************************************
-*
-* FILE: 
-* 		mag.h
-*
-* DESCRIPTION: 
-* 		Contains API functions for A0010 (rev3 Flight Computer) BMM350 
-*       magnetometer
-*
-* COPYRIGHT:                                                                   
-*       Copyright (c) 2026 Sun Devil Rocketry.                                 
-*       All rights reserved.                                                   
-*                                                                              
-*       This software is licensed under terms that can be found in the LICENSE 
-*       file in the root directory of this software component.                 
-*       If no LICENSE file comes with this software, it is covered under the   
-*       BSD-3-Clause.                                                          
-*                                                                              
-*       https://opensource.org/license/bsd-3-clause          
-*
-*******************************************************************************/
+/**
+  ******************************************************************************
+  * @file           : mag.h
+  * @brief          : Contains API functions for rev 3's BMM350 magnetometer.
+  ******************************************************************************
+  * @copyright
+  *
+  * Copyright (c) 2026 Sun Devil Rocketry.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is covered under the
+  * BSD-3-Clause.
+  *
+  * https://opensource.org/license/bsd-3-clause
+  */
 
 /* How it works, studying the BMM350 driver:
  * - You read the 32 byte OTP ROM on startup
@@ -26,6 +22,18 @@
  * - You read compensation coefficents from the OTP ROM
  * - You apply them and pass back the result
  */
+
+/*------------------------------------------------------------------------------
+ Typdefs
+------------------------------------------------------------------------------*/
+
+// TODO this needs to be expanded
+// Currently just the minimum for this to be kind of useful as return
+typedef enum _MAG_STATUS
+    {
+    MAG_OK = 0,
+    MAG_FAIL
+    } MAG_STATUS;
 
 /* Set pad driver strength (See BMM350 Datasheet section 5.6) */
 typedef enum _MAG_PAD_CTRL
@@ -97,3 +105,11 @@ typedef struct _MAG_CONFIG
     MAG_AXIS_Y axis_y;
     MAG_AXIS_Z axis_z;
     } MAG_CONFIG;
+
+/*------------------------------------------------------------------------------
+    Function Prototypes
+------------------------------------------------------------------------------*/
+MAG_STATUS mag_init
+    (
+    MAG_CONFIG *mag_config_ptr
+    );
