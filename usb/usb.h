@@ -38,7 +38,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 
-#ifndef USE_USB_CDC_FS
+#if !defined( USE_USB_CDC_FS ) && !defined( F1_TESTBED )
     #include "stm32h7xx_hal.h"  /* Required for UART_HandleTypeDef in legacy mode */
 #endif
 
