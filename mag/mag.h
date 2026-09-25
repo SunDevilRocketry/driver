@@ -106,10 +106,33 @@ typedef struct _MAG_CONFIG
     MAG_AXIS_Z axis_z;
     } MAG_CONFIG;
 
+/* Compensated Magnetomer Data struct */
+typedef struct _MAG_XYZ
+    {
+    float mag_x;
+    float mag_y;
+    float mag_z;
+    } MAG_XYZ;
+
 /*------------------------------------------------------------------------------
     Function Prototypes
 ------------------------------------------------------------------------------*/
 MAG_STATUS mag_init
     (
     MAG_CONFIG *mag_config_ptr
+    );
+
+MAG_STATUS mag_get_ready
+    (
+    void
+    );
+
+MAG_STATUS mag_it_handler
+    (
+    void
+    );
+
+MAG_STATUS mag_get_xyz
+    (
+    MAG_XYZ *mag_xyz
     );
