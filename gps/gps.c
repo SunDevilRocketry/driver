@@ -30,6 +30,7 @@
 ------------------------------------------------------------------------------*/
 #if   defined( FLIGHT_COMPUTER      )
 	#include "sdr_pin_defines_A0002.h"
+    #include "stm32h7xx_hal.h"
 #elif defined( ENGINE_CONTROLLER    )
 	#include "sdr_pin_defines_L0002.h"
 #elif defined( VALVE_CONTROLLER     )
@@ -58,8 +59,12 @@
 ------------------------------------------------------------------------------*/
 
 /*------------------------------------------------------------------------------
-Global Variables                                                                  
+ Internal function prototypes                                                                   
 ------------------------------------------------------------------------------*/
+static GPS_NMEA_MSG_TYPE parse_token
+    (
+    char* nmea_token
+    );
 
 /*------------------------------------------------------------------------------
  Local Variables
@@ -287,120 +292,124 @@ int gps_mesg_validate(char *nmeastr){
 *       helpers are updated, make sure the test cases are updated to match.    *
 *                                                                              *
 *******************************************************************************/
-void GPS_parse(GPS_DATA* gps_ptr, char *GPSstrParse){
-
-
-
-
+void GPS_parse
+    (
+    GPS_DATA* gps_ptr,
+    char *GPSstrParse
+    )
+{
 /* Get message type */
 char token[8]; // Needs to be 8 chars for memory alignment
 strncpy(token, GPSstrParse, 6);
 token[6] = '\0';
 int idx = 7; /* Skips "$GPXXX,"*/
 
-
+GPS_NMEA_MSG_TYPE message_type = parse_token(token);
 
 /* Parse by message type */
-if (!strcmp(token, "$GPGGA")) 
+switch ( message_type ) 
     {
-    gps_ptr->utc_time = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->ns = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->ew = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->lock = (int)gps_string_to_float(GPSstrParse, &idx) + 0.5;
-    gps_ptr->satelites = (int)(gps_string_to_float(GPSstrParse, &idx) + 0.5); // This is a decimal number.
-    gps_ptr->hdop = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->msl_altitude = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->msl_units = gps_string_to_char(GPSstrParse, &idx);
-    gps_conv_latitude_longitude( gps_ptr );
-    }
-else if (!strcmp(token, "$GPRMC")) 
-    {
-    /* Parse data */
-    float utc_time = gps_string_to_float(GPSstrParse, &idx);
-    char rmc_status = gps_string_to_char(GPSstrParse, &idx);
-    float nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
-    char ns = gps_string_to_char(GPSstrParse, &idx);
-    float nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
-    char ew = gps_string_to_char(GPSstrParse, &idx);
-    float speed_k = gps_string_to_float(GPSstrParse, &idx);
-    float course_d = gps_string_to_float(GPSstrParse, &idx);
-    int date = (int)(0.5 + gps_string_to_float(GPSstrParse, &idx));
-
-    /* Save status */
-    gps_ptr->rmc_status = rmc_status;
-    
-    /* Save rest of data only if status is A: Active */
-    if ( rmc_status == 'A' )
-        {
-        gps_ptr->utc_time = utc_time;
-        gps_ptr->nmea_latitude = nmea_latitude;
-        gps_ptr->ns = ns;
-        gps_ptr->nmea_longitude = nmea_longitude;
-        gps_ptr->ew = ew;
-        gps_ptr->speed_k = speed_k;
-        gps_ptr->course_d = course_d;
-        gps_ptr->date = date;
+    case NMEA_MSG_GGA:
+        gps_ptr->utc_time = gps_string_to_float(GPSstrParse, &idx);
+        gps_ptr->nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
+        gps_ptr->ns = gps_string_to_char(GPSstrParse, &idx);
+        gps_ptr->nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
+        gps_ptr->ew = gps_string_to_char(GPSstrParse, &idx);
+        gps_ptr->lock = (int)gps_string_to_float(GPSstrParse, &idx) + 0.5;
+        gps_ptr->satelites = (int)(gps_string_to_float(GPSstrParse, &idx) + 0.5); // This is a decimal number.
+        gps_ptr->hdop = gps_string_to_float(GPSstrParse, &idx);
+        gps_ptr->msl_altitude = gps_string_to_float(GPSstrParse, &idx);
+        gps_ptr->msl_units = gps_string_to_char(GPSstrParse, &idx);
         gps_conv_latitude_longitude( gps_ptr );
-
-        /* Update last valid data */
-        gps_last_valid_rmc_data = *gps_ptr;
-        }
-    /* Discard new data, use last valid data instead if the status is V: Void */
-    else if ( rmc_status == 'V' )
+        break;
+    case NMEA_MSG_RMC:
+        /* Parse data */
         {
-        *gps_ptr = gps_last_valid_rmc_data;
+        float utc_time = gps_string_to_float(GPSstrParse, &idx);
+        char rmc_status = gps_string_to_char(GPSstrParse, &idx);
+        float nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
+        char ns = gps_string_to_char(GPSstrParse, &idx);
+        float nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
+        char ew = gps_string_to_char(GPSstrParse, &idx);
+        float speed_k = gps_string_to_float(GPSstrParse, &idx);
+        float course_d = gps_string_to_float(GPSstrParse, &idx);
+        int date = (int)(0.5 + gps_string_to_float(GPSstrParse, &idx));
 
-        /* Re-save rmc_status since the previous statement may override it */
+        /* Save status */
         gps_ptr->rmc_status = rmc_status;
+        
+        /* Save rest of data only if status is A: Active */
+        if ( rmc_status == 'A' )
+            {
+            gps_ptr->utc_time = utc_time;
+            gps_ptr->nmea_latitude = nmea_latitude;
+            gps_ptr->ns = ns;
+            gps_ptr->nmea_longitude = nmea_longitude;
+            gps_ptr->ew = ew;
+            gps_ptr->speed_k = speed_k;
+            gps_ptr->course_d = course_d;
+            gps_ptr->date = date;
+            gps_conv_latitude_longitude( gps_ptr );
+
+            /* Update last valid data */
+            gps_last_valid_rmc_data = *gps_ptr;
+            }
+        /* Discard new data, use last valid data instead if the status is V: Void */
+        else if ( rmc_status == 'V' )
+            {
+            *gps_ptr = gps_last_valid_rmc_data;
+
+            /* Re-save rmc_status since the previous statement may override it */
+            gps_ptr->rmc_status = rmc_status;
+            }
         }
-    }
-else if (!strcmp(token, "$GPGLL")) 
-    {
-    /* Parse data */
-    float nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
-    char ns = gps_string_to_char(GPSstrParse, &idx);
-    float nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
-    char ew = gps_string_to_char(GPSstrParse, &idx);
-    float utc_time = gps_string_to_float(GPSstrParse, &idx);
-    char gll_status = gps_string_to_char(GPSstrParse, &idx);
-    
-    /* Store status */
-    gps_ptr->gll_status = gll_status;
-
-    /* Save rest of data only if status is A: Data Valid */
-    if (gll_status == 'A')
+        break;
+    case NMEA_MSG_GLL:
         {
-        gps_ptr->nmea_latitude = nmea_latitude;
-        gps_ptr->ns = ns;
-        gps_ptr->nmea_longitude = nmea_longitude;
-        gps_ptr->ew = ew;
-        gps_ptr->utc_time = utc_time;
-        gps_conv_latitude_longitude( gps_ptr );
-
-        gps_last_valid_gll_data = *gps_ptr;
-        }
-    else if (gll_status == 'V')
-        {
-        *gps_ptr = gps_last_valid_gll_data;
-
-        /* Resave gll status since the previous statement may override it */
+        /* Parse data */
+        float nmea_latitude = gps_string_to_float(GPSstrParse, &idx);
+        char ns = gps_string_to_char(GPSstrParse, &idx);
+        float nmea_longitude = gps_string_to_float(GPSstrParse, &idx);
+        char ew = gps_string_to_char(GPSstrParse, &idx);
+        float utc_time = gps_string_to_float(GPSstrParse, &idx);
+        char gll_status = gps_string_to_char(GPSstrParse, &idx);
+        
+        /* Store status */
         gps_ptr->gll_status = gll_status;
-        }
-    }
-    
 
-else if (!strcmp(token, "$GPVTG")) 
-    {
-    gps_ptr->course_t = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->course_t_unit = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->course_m = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->course_m_unit = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->speed_k = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->speed_k_unit = gps_string_to_char(GPSstrParse, &idx);
-    gps_ptr->speed_km = gps_string_to_float(GPSstrParse, &idx);
-    gps_ptr->speed_km_unit = gps_string_to_char(GPSstrParse, &idx);
+        /* Save rest of data only if status is A: Data Valid */
+        if (gll_status == 'A')
+            {
+            gps_ptr->nmea_latitude = nmea_latitude;
+            gps_ptr->ns = ns;
+            gps_ptr->nmea_longitude = nmea_longitude;
+            gps_ptr->ew = ew;
+            gps_ptr->utc_time = utc_time;
+            gps_conv_latitude_longitude( gps_ptr );
+
+            gps_last_valid_gll_data = *gps_ptr;
+            }
+        else if (gll_status == 'V')
+            {
+            *gps_ptr = gps_last_valid_gll_data;
+
+            /* Resave gll status since the previous statement may override it */
+            gps_ptr->gll_status = gll_status;
+            }
+        }
+        break;
+    case NMEA_MSG_VTG:
+        gps_ptr->course_t = gps_string_to_float(GPSstrParse, &idx);
+        gps_ptr->course_t_unit = gps_string_to_char(GPSstrParse, &idx);
+        gps_ptr->course_m = gps_string_to_float(GPSstrParse, &idx);
+        gps_ptr->course_m_unit = gps_string_to_char(GPSstrParse, &idx);
+        gps_ptr->speed_k = gps_string_to_float(GPSstrParse, &idx);
+        gps_ptr->speed_k_unit = gps_string_to_char(GPSstrParse, &idx);
+        gps_ptr->speed_km = gps_string_to_float(GPSstrParse, &idx);
+        gps_ptr->speed_km_unit = gps_string_to_char(GPSstrParse, &idx);
+        break;
+    default:    
+        break; /* Ignore */
     }
 } /* GPS_parse */
 
@@ -521,6 +530,32 @@ if (data->ew == 'W') {
 data->dec_latitude = latitude;
 data->dec_longitude = longitude;
 } /* gps_conv_latitude_longitude */
+
+
+/*------------------------------------------------------------------------------
+ Internal procedures 
+------------------------------------------------------------------------------*/
+
+static GPS_NMEA_MSG_TYPE parse_token
+    (
+    char* nmea_token
+    )
+{
+GPS_NMEA_MSG_TYPE message_type;
+
+/* Skip '$' and talker ID */
+char* sentence_id = nmea_token + 3;
+if      ( !strncmp(sentence_id, "GGA", 3) ) message_type = NMEA_MSG_GGA;
+else if ( !strncmp(sentence_id, "GLL", 3) ) message_type = NMEA_MSG_GLL;
+else if ( !strncmp(sentence_id, "GSA", 3) ) message_type = NMEA_MSG_GSA;
+else if ( !strncmp(sentence_id, "GSV", 3) ) message_type = NMEA_MSG_GSV;
+else if ( !strncmp(sentence_id, "RMC", 3) ) message_type = NMEA_MSG_RMC;
+else if ( !strncmp(sentence_id, "VTG", 3) ) message_type = NMEA_MSG_VTG;
+else message_type = NMEA_MSG_UNSUPPORTED;
+
+return message_type;
+
+}
 
 /*******************************************************************************
 * END OF FILE                                                                  * 
