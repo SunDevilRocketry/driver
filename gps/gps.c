@@ -551,7 +551,9 @@ else if ( !strncmp(sentence_id, "GSA", 3) ) message_type = NMEA_MSG_GSA;
 else if ( !strncmp(sentence_id, "GSV", 3) ) message_type = NMEA_MSG_GSV;
 else if ( !strncmp(sentence_id, "RMC", 3) ) message_type = NMEA_MSG_RMC;
 else if ( !strncmp(sentence_id, "VTG", 3) ) message_type = NMEA_MSG_VTG;
+/** GCOVR_EXCL_START -- This branch is tested, but non-arm GCC includes it differently than the test compiler. */
 else message_type = NMEA_MSG_UNSUPPORTED;
+/** GCOVR_EXCL_STOP */
 
 return message_type;
 
