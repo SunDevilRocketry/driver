@@ -41,7 +41,6 @@
 extern "C" {
 #endif
 
-
 /*------------------------------------------------------------------------------
  Macros 
 ------------------------------------------------------------------------------*/
@@ -499,6 +498,17 @@ MAG_TRIM imu_get_mag_trim
     (
     void
     );
+
+/**
+  * @brief Converts raw magnetometer readings into magnetic field data.
+  * @param[out] imu_converted Converted IMU data to update.
+  * @param[in]  imu_raw Raw magnetometer readouts.
+  */
+static void mag_conv_raw
+	(
+	IMU_CONVERTED* imu_converted, 
+	IMU_RAW const* imu_raw
+	);
 
 #ifdef __cplusplus
 }
