@@ -28,11 +28,7 @@
 /*------------------------------------------------------------------------------
  Project Includes                                                               
 ------------------------------------------------------------------------------*/
-#if   defined( VALVE_CONTROLLER  )
-	#include "sdr_pin_defines_L0005.h"
-#elif defined( ENGINE_CONTROLLER )
-	#include "sdr_pin_defines_L0002.h"
-#endif
+#include "pindefs.h"
 #include "stm32h7xx_hal.h"
 #include "main.h"
 #include "valve.h"

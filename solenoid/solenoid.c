@@ -24,7 +24,7 @@
  Includes
 ------------------------------------------------------------------------------*/
 #include "main.h"
-#include "sdr_pin_defines_L0005.h"
+#include "pindefs.h"
 #include "solenoid.h"
 #include "stm32h7xx_hal.h"
 #include "usb.h"

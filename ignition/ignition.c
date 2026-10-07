@@ -30,13 +30,8 @@
 /*------------------------------------------------------------------------------
  MCU Pins 
 ------------------------------------------------------------------------------*/
-#if   defined( FLIGHT_COMPUTER      )
-	#include "sdr_pin_defines_A0002.h"
-#elif defined( ENGINE_CONTROLLER    )
-	#include "sdr_pin_defines_L0002.h"
-#elif defined( FLIGHT_COMPUTER_LITE )
-	#include "sdr_pin_defines_A0007.h"
-#endif
+#include "pindefs.h"
+
 
 /*------------------------------------------------------------------------------
  Project Includes                                                                     

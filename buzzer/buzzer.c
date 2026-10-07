@@ -32,15 +32,7 @@
  Project Includes                                                                     
 ------------------------------------------------------------------------------*/
 #include "main.h"
-#if defined( A0002_REV2 )
-	#include "sdr_pin_defines_A0002.h"
-#elif defined( FLIGHT_COMPUTER_LITE )
-	#include "sdr_pin_defines_A0007.h"
-#elif defined ( A0010 )
-	#include "sdr_pin_defines_A0010.h"
-#else
-	#error No buzzer compatible device specified
-#endif
+#include "pindefs.h"
 
 #ifdef EMULATOR
 #include "emulator.h"

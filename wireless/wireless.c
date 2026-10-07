@@ -24,11 +24,8 @@
 /*------------------------------------------------------------------------------
  Standard Includes                                                                     
 ------------------------------------------------------------------------------*/
-#if defined( GROUND_STATION )
-	#include "sdr_pin_defines_A0005.h"
-#elif defined( ENGINE_CONTROLLER )
-	#include "sdr_pin_defines_L0002.h"
-#endif
+#include "pindefs.h"
+
 
 /*------------------------------------------------------------------------------
  Project Includes                                                                     

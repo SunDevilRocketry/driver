@@ -38,7 +38,7 @@
  Project Includes                                                               
 ------------------------------------------------------------------------------*/
 #include "main.h"
-#include "sdr_pin_defines_A0002.h"
+#include "pindefs.h"
 #include "imu_legacy.h"
 
 #include <math.h>

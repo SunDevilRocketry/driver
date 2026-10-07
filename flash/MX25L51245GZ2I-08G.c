@@ -31,7 +31,7 @@
 #include "flash.h"
 
 #include "stm32h7xx_hal.h"
-#include "sdr_pin_defines_A0010.h"
+#include "pindefs.h"
 
 /* Global Variables ----------------------------------------------------------*/
 
