@@ -37,20 +37,14 @@
  Macros 
 ------------------------------------------------------------------------------*/
 
-/* I2C Addresses */
+/* I2C Address */
 #define IMU_ADDR                0x68<<1
-#if   defined( A0002_REV1 )
-    #define IMU_MAG_ADDR        0x0C<<1
-#elif defined( A0002_REV2 )
-    #define IMU_MAG_ADDR        0x10<<1
-#endif
 
-/* Device IDs */
+/* Device ID */
 #if   defined( A0002_REV1 )
     #define IMU_ID                  0x71
 #elif defined( A0002_REV2 )
     #define IMU_ID                  0x24
-    #define MAG_ID                  0x32
 #endif
 
 /* SDEC Subcommand Codes */
@@ -60,17 +54,6 @@
 
 /* Timeouts */
 #define HAL_IMU_TIMEOUT             10
-
-/* Register Bitmasks/Bitshifts */
-#define MAG_XY_LSB_BITMASK          0b11111000
-#define MAG_XY_LSB_BITSHIFT         3 /* Bit 3 to position 0 */
-#define MAG_XY_MSB_BITSHIFT         5 /* Bit 0 to position 5 */
-#define MAG_Z_LSB_BITMASK           0b11111110
-#define MAG_Z_LSB_BITSHIFT          1 /* Bit 1 to position 0 */
-#define MAG_Z_MSB_BITSHIFT          7 /* Bit 0 to position 7 */
-#define MAG_RHALL_LSB_BITMASK       0b11111100
-#define MAG_RHALL_LSB_BITSHIFT      2 /* Bit 2 to position 0 */
-#define MAG_RHALL_MSB_BITSHIFT      6 /* Bit 0 to position 6 */
 
 
 /*------------------------------------------------------------------------------
@@ -189,43 +172,6 @@
     #define IMU_REG_PWR_CONF            0x7C
     #define IMU_REG_PWR_CTRL            0x7D
     #define IMU_REG_CMD                 0x7E
-
-    /* BMM150 Registers */
-    #define MAG_REG_CHIP_ID             0x40
-    #define MAG_REG_DATAX_L             0x42
-    #define MAG_REG_DATAX_H             0x43
-    #define MAG_REG_DATAY_L             0x44
-    #define MAG_REG_DATAY_H             0x45
-    #define MAG_REG_DATAZ_L             0x46
-    #define MAG_REG_DATAZ_H             0x47
-    #define MAG_REG_HALLR_L             0x48
-    #define MAG_REG_HALLR_H             0x49
-    #define MAG_REG_INT                 0x4A
-    #define MAG_REG_PWR_CTRL            0x4B
-    #define MAG_REG_CTRL1               0x4C
-    #define MAG_REG_CTRL2               0x4D
-    #define MAG_REG_CTRL3               0x4E
-    #define MAG_REG_LOW_THRESH          0x4F
-    #define MAG_REG_HIGH_THRESH         0x50
-    #define MAG_REG_REP_CTRL_XY         0x51
-    #define MAG_REG_REP_CTRL_Z          0x52
-    /* Trim Registers */
-    #define MAG_TRIM_REG_X1             0x5D
-    #define MAG_TRIM_REG_Y1             0x5E
-    #define MAG_TRIM_REG_Z4_LSB         0x62
-    #define MAG_TRIM_REG_Z4_MSB         0x63
-    #define MAG_TRIM_REG_X2             0x64
-    #define MAG_TRIM_REG_Y2             0x65
-    #define MAG_TRIM_REG_Z2_LSB         0x68
-    #define MAG_TRIM_REG_Z2_MSB         0x69
-    #define MAG_TRIM_REG_Z1_LSB         0x6A
-    #define MAG_TRIM_REG_Z1_MSB         0x6B
-    #define MAG_TRIM_REG_XYZ1_LSB       0x6C
-    #define MAG_TRIM_REG_XYZ1_MSB       0x6D
-    #define MAG_TRIM_REG_Z3_LSB         0x6E
-    #define MAG_TRIM_REG_Z3_MSB         0x6F
-    #define MAG_TRIM_REG_XY2            0x70
-    #define MAG_TRIM_REG_XY1            0x71
 #endif
 
   
