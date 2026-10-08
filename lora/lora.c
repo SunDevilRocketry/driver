@@ -846,22 +846,18 @@ static LORA_STATUS read_register_buffer
 LORA_STATUS status;
 HAL_StatusTypeDef hal_status;
 
-// ETS: NSS is not deasserted if there is an error
+/* Perform both steps in sequence so we deassert NSS no matter what */
 HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
 
 status = spi_transmit_byte( (lora_register & 0x7F) );
-if( status != LORA_OK )
-    {
-    return LORA_FAIL;
-    }
-
 hal_status = HAL_SPI_Receive( &(LORA_SPI), pRegData, buffer_len, LORA_TIMEOUT );
-if( hal_status != HAL_OK )
-    {
-    return LORA_FAIL;
-    }
 
 HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+if( hal_status != HAL_OK || status != LORA_OK )
+    {
+    return LORA_FAIL;
+    }
 
 return LORA_OK;
 
@@ -915,24 +911,23 @@ static LORA_STATUS write_register_buffer
     )
 {
 /* Local Variables */
-HAL_StatusTypeDef status;
+HAL_StatusTypeDef status = HAL_OK;
 
 HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
 
-// ETS: NSS is not deasserted if there is an error
-
 /* Apply the write bitmask before transmitting */
 uint8_t dest_reg = (lora_register | 0x80);
-status = HAL_SPI_Transmit( &(LORA_SPI), &dest_reg, 1, LORA_TIMEOUT);
-if ( status != HAL_OK )
-    return LORA_FAIL;
+status |= HAL_SPI_Transmit( &(LORA_SPI), &dest_reg, 1, LORA_TIMEOUT);
 
-// Write desire buffer
-status = HAL_SPI_Transmit( &(LORA_SPI), data, buffer_len, LORA_TIMEOUT);
-if ( status != HAL_OK )
-    return LORA_FAIL;
+/* Write buffer */
+status |= HAL_SPI_Transmit( &(LORA_SPI), data, buffer_len, LORA_TIMEOUT);
 
 HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+if ( status != LORA_OK )
+    {
+    return LORA_FAIL;
+    }
 
 return LORA_OK;
 
