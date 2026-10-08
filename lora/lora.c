@@ -206,75 +206,69 @@ else
 } /* lora_configure */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_set_chip_mode                                                     *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Set operation mode of LoRa modem                                       *
-*                                                                              *
-*******************************************************************************/
+/**
+ * @brief Set the operation mode for the modem.
+ * 
+ * @param chip_mode The operation mode to switch to.
+ * @return LORA_STATUS The status of the modem.
+ */
 LORA_STATUS lora_set_chip_mode
     (
     LORA_CHIPMODE chip_mode
     )
 {
-// Get initial value of the operation mode register
+/* Get initial value of the opmode register */
 uint8_t operation_mode_register;
 LORA_STATUS read_status = read_register( LORA_REG_OPERATION_MODE, &operation_mode_register );
 
-if (read_status != LORA_OK)
-{
+if ( read_status != LORA_OK )
+    {
     return LORA_FAIL;
-}
+    }
 
-// // Fail if not in LORA Mode
-// if ( !( operation_mode_register & (1<<7) ) ){
-//     return LORA_FAIL;
-// }
-
-// Change the value of the chip register to set it to the suggested chip mode
+/* Change the register's operation mode */
 uint8_t new_opmode_register = (operation_mode_register & ~(0x7));
 new_opmode_register = (new_opmode_register | chip_mode);
 
-// Write new byte
+/* Write back */
 LORA_STATUS write_status = write_register( LORA_REG_OPERATION_MODE, new_opmode_register );
 
-if ( write_status + read_status == 0 ){
+if ( write_status + read_status == 0 )
+    {
     return LORA_OK;
-} else {
-    return LORA_FAIL;
-}
-}
+    }
+    
+return LORA_FAIL;
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_init                                                              *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Initialize LoRa modem                                                  *
-*                                                                              *
-*******************************************************************************/
+} /* lora_set_chip_mode */
+
+
+/**
+ * @brief Initialize the lora modem
+ * 
+ * @param lora_config_ptr The configuration settings to initialize with
+ * @return The status of the modem
+ */
 LORA_STATUS lora_init
     (
     LORA_CONFIG *lora_config_ptr
     )
 {
-// TODO add check for accurate chip ID (more than zero)
+/* Check device ID */
 uint8_t device_id = 0;
 get_device_id( &device_id );
 
-if( device_id != 0x12 ) {
+if( device_id != 0x12 ) 
+    {
     return LORA_FAIL;
-}
+    }
 
-// Check legality of frequency settings
-// We do this first so that nothing gets set if we're on an illegal frequency.
+/** Check legality of frequency settings
+  * We do this first so that nothing gets set if we're on an illegal frequency.
+  */
 
-// Get a version of our bandwidth for legality calculations
-uint32_t bandwidth; // Calculations down in hz due to decimal bandwidths
+/* Get a version of our bandwidth for legality calculations */
+uint32_t bandwidth; /* Calculations down in hz due to decimal bandwidths */
 switch( lora_config_ptr->lora_bandwidth ) {
     case LORA_BANDWIDTH_7_8_KHZ:
         bandwidth = 7800;
@@ -307,16 +301,15 @@ switch( lora_config_ptr->lora_bandwidth ) {
         bandwidth = 500000;
         break;
     default:
-        // Just in case, even though this is reading an enum
         return LORA_FAIL;
 }
 
-// Check legal compliance of frequency:
-if( !( lora_config_ptr->lora_frequency * 1000 + ( bandwidth / 2 ) <= ISM_MAX_FREQ * 1000 &&
-    lora_config_ptr->lora_frequency * 1000 - ( bandwidth / 2 ) >= ISM_MIN_FREQ * 1000 )
-) {
+/* Check legal compliance of frequency */
+if ( !( lora_config_ptr->lora_frequency * 1000 + ( bandwidth / 2 ) <= ISM_MAX_FREQ * 1000
+     && lora_config_ptr->lora_frequency * 1000 - ( bandwidth / 2 ) >= ISM_MIN_FREQ * 1000 ) ) 
+    {
     return LORA_FAIL;
-}
+    }
 
 LORA_STATUS set_sleep_status = lora_set_chip_mode( LORA_SLEEP_MODE ); // Switch to sleep mode to enable LoRa bit (datasheeet page 102)
 // Get initial value of the operation mode register
@@ -378,22 +371,18 @@ LORA_STATUS write_status7 = write_register( LORA_REG_PA_CONFIG, new_pa_select_re
 
 LORA_STATUS standby_status = lora_set_chip_mode( lora_config_ptr->lora_mode ); // Switch it into standby mode, which is what's convenient.
 
-if( set_sleep_status + read_status1 + read_status2 + read_status3 + write_status1 + write_status2 + write_status3 + write_status4 + write_status5 + write_status6 + write_status7 + standby_status == 0 ) {
-    return LORA_OK;
-} else {
+if( set_sleep_status + read_status1 + read_status2 + read_status3 + write_status1 + write_status2 + write_status3 + write_status4 + write_status5 + write_status6 + write_status7 + standby_status != 0 ) 
+    {
     return LORA_FAIL;
-}
-}
+    }
+return LORA_OK;
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_reset                                                             *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Reset LoRa modem (Initialization function needs to be called again)    *
-*                                                                              *
-*******************************************************************************/
+} /* lora_init */
+
+
+/**
+ * @brief Reset LoRa modem
+ */
 void lora_reset
     (
     void
@@ -403,17 +392,17 @@ HAL_GPIO_WritePin(LORA_RST_GPIO_PORT, LORA_RST_PIN, GPIO_PIN_RESET); // Pull Low
 HAL_Delay(10);  // Hold reset low for 10 ms
 HAL_GPIO_WritePin(LORA_RST_GPIO_PORT, LORA_RST_PIN, GPIO_PIN_SET);   // Pull High
 HAL_Delay(10);  // Wait for SX1278 to stabilize
-}
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_transmit                                                          *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       transmit a buffer through lora fifo                                    *
-*                                                                              *
-*******************************************************************************/
+} /* lora_reset */
+
+
+/**
+ * @brief Transmit a packet (in blocking mode)
+ * 
+ * @param[in] buffer_ptr A pointer to the data to transmit
+ * @param buffer_len The size of the buffer being transmitted
+ * @return The status of the modem
+ */
 LORA_STATUS lora_transmit
     (
     uint8_t* buffer_ptr,
@@ -471,15 +460,14 @@ if( fifo_status + tmode_status + regop_status + sendbyte_status == 0 ) {
 }
 }
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_receive_ready                                                     *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Check if new packt has been received                                   *
-*                                                                              *
-*******************************************************************************/
+
+/**
+ * @brief Check if a packet has been received
+ * 
+ * @retval LORA_READY if a packet is ready
+ * @retval LORA_WAITING if waiting for the packet
+ * @retval LORA_FAIL if the receive failed
+ */
 LORA_STATUS lora_receive_ready
     (
     void
@@ -514,15 +502,15 @@ if( mode_check == LORA_OK && mode == LORA_RX_CONTINUOUS_MODE ) {
 }
 }
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_receive                                                           *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       lora_receive: receive a buffer from lora fifo with continuous mode     *
-*                                                                              *
-*******************************************************************************/
+
+/**
+ * @brief Receive a packet over LoRa
+ * 
+ * @param[in] buffer_ptr The buffer to receive into
+ * @param buffer_len The length of the receive buffer
+ * @param[out] num_bytes_received The actual number of bytes received
+ * @return LORA_STATUS 
+ */
 LORA_STATUS lora_receive
     (
     uint8_t* buffer_ptr,
