@@ -225,25 +225,6 @@ typedef enum LORA_FSM_EVENT {
  Function Prototypes
 ------------------------------------------------------------------------------*/
 
-/* Interrupt driven I/O (used by the telemetry FSM) */
-LORA_STATUS lora_read_register_IT
-    (
-    uint8_t lora_register,
-    uint8_t* pRegData
-    );
-
-LORA_STATUS lora_write_register_IT
-    (
-    uint8_t lora_register,
-    uint8_t data
-    );
-
-LORA_STATUS lora_write_IT
-    (
-    uint8_t* data,
-    size_t   len
-    );
-
 LORA_STATUS lora_init
     (
     LORA_CONFIG *lora_config_ptr
@@ -306,6 +287,28 @@ LORA_STATUS lora_fsm_set_mode
 void lora_fsm_update
     (
     LORA_FSM_EVENT update_cause
+    );
+
+/** Interrupt driven I/O (used by the telemetry FSM)
+  * These functions are scoped to the driver and should never
+  * be called directly
+  */
+LORA_STATUS _lora_read_register_IT
+    (
+    uint8_t lora_register,
+    uint8_t* pRegData
+    );
+
+LORA_STATUS _lora_write_register_IT
+    (
+    uint8_t lora_register,
+    uint8_t data
+    );
+
+LORA_STATUS _lora_write_IT
+    (
+    uint8_t* data,
+    size_t   len
     );
 
 #ifdef __cplusplus
