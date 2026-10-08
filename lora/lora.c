@@ -49,6 +49,8 @@
 
 #include "lora.h"
 
+#define LORA_BLOCKING_TX_TIMEOUT 50
+
 /* Globals -------------------------------------------------------------------*/
 static LORA_STATUS lora_rx_done = LORA_WAITING;
 static bool is_lora_configured = false;
@@ -433,32 +435,32 @@ LORA_STATUS fifo_status = write_register(LORA_REG_SIGNAL_TO_NOISE, buffer_len);
 // Send byte to byte to the fifo buffer
 LORA_STATUS sendbyte_status = LORA_OK;
 
-/*
-// Old transmit buffer write code
-// TODO don't remove until burst transmit is working
-for (int i = 0; i<buffer_len; i++){
-    sendbyte_status = write_register(LORA_REG_FIFO_RW, buffer_ptr[i]);
-}
-*/
-
 sendbyte_status = write_register_buffer( LORA_REG_FIFO_RW, buffer_ptr, buffer_len );
 
 LORA_STATUS tmode_status = lora_set_chip_mode(LORA_TRANSMIT_MODE);
 
 uint8_t lora_op;
-LORA_STATUS regop_status;
-while (1){ // TODO Add a timeout here
+LORA_STATUS regop_status = LORA_OK;
+uint32_t start_time = HAL_GetTick();
+while ( ( start_time + ( LORA_BLOCKING_TX_TIMEOUT * buffer_len ) ) > HAL_GetTick() )
+    {
     regop_status = read_register(LORA_REG_OPERATION_MODE, &lora_op);
-    if ((lora_op & 0b111) == LORA_STANDBY_MODE){
+    if ( ( ( lora_op & 0b111 ) == LORA_STANDBY_MODE )
+      || ( regop_status != LORA_OK ) ) 
+        {
         break;
+        }
     }
-}
-if( fifo_status + tmode_status + regop_status + sendbyte_status == 0 ) {
-        return LORA_OK;
-} else {
-    return LORA_FAIL;
-}
-}
+
+if( fifo_status + tmode_status + regop_status + sendbyte_status == 0
+ && ( start_time + ( LORA_BLOCKING_TX_TIMEOUT * buffer_len ) ) > HAL_GetTick() )
+    {
+    return LORA_OK;
+    }
+
+return LORA_FAIL;
+
+} /* lora_transmit */
 
 
 /**
@@ -912,7 +914,7 @@ status |= HAL_SPI_Transmit( &(LORA_SPI), data, buffer_len, LORA_TIMEOUT);
 
 HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
 
-if ( status != LORA_OK )
+if ( status != HAL_OK )
     {
     return LORA_FAIL;
     }

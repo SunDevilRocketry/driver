@@ -52,12 +52,12 @@ test_lora.c                       								  \
 mock/MOCK_hal.c
 
 # Tested Source Files
-COV_C_SOURCES =													  \
-$(ROOT_DIR)/driver/lora/lora.c								      \
+COV_C_SOURCES =	
 
 # Sources #included by test_lora.c (not compiled separately, but counted in coverage)
 COV_INCLUDED_SOURCES =											  \
-$(ROOT_DIR)/driver/lora/lora_async.c
+$(ROOT_DIR)/driver/lora/lora_async.c							  \
+$(ROOT_DIR)/driver/lora/lora.c
 
 COV_FILTER_SOURCES = $(COV_C_SOURCES) $(COV_INCLUDED_SOURCES)
 
