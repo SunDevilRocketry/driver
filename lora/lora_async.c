@@ -1,47 +1,56 @@
-/*******************************************************************************
-*
-* FILE:
-* 		lora_async.c
-*
-* DESCRIPTION:
-* 		Contains API functions for transmating //{POSTPONED} and receiving// 
-*       from the board's built-in LoRa module in non-blocking mode.
-*
-* COPYRIGHT:
-*       Copyright (c) 2025 Sun Devil Rocketry.
-*       All rights reserved.
-*
-*       This software is licensed under terms that can be found in the LICENSE
-*       file in the root directory of this software component.
-*       If no LICENSE file comes with this software, it is covered under the
-*       BSD-3-Clause.
-*
-*       https://opensource.org/license/bsd-3-clause
-*
-*******************************************************************************/
+/**
+  ******************************************************************************
+  * @file           : lora_async.c
+  * @brief          : Interfaces for wireless communication on high-performance
+                      hardware off the CPU.
+  ******************************************************************************
+  * @copyright
+  *
+  * Copyright (c) 2026 Sun Devil Rocketry.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is covered under the   
+  * BSD-3-Clause.                                                          
+  *                                                                              
+  * https://opensource.org/license/bsd-3-clause
+  *
+  ******************************************************************************
+  @verbatim
+  ==============================================================================
+                      ##### Integration Guide #####
+  ==============================================================================
+  [..]
+  ## Dependencies:
+  - An implementation of the telemetry_get_next_message() contract from
+    telemetry.h
+  - The rest of the LoRa driver
+  
+  ## Invariants (contract):
+  - The project must call lora_init() or lora_configure() before attempting
+    to use this library.
+  - The hardware must have an RFM95.
+  - This file's abstractions must not be broken as all assumptions rely on
+    the public interfaces being used for interaction.
+  
+  ## Instructions:
+  - Call lora_fsm_set_mode to switch to TX{{/RX (postponed)}} mode.
+  - Call lora_fsm_update synchronously in your main application loop and
+    via the callbacks from the main lora.c file.
+  ******************************************************************************
+  @endverbatim
+  */
 
-
-/*------------------------------------------------------------------------------
- Standard Includes
-------------------------------------------------------------------------------*/
+/* Includes ------------------------------------------------------------------*/
 #include <string.h>
 
-/*------------------------------------------------------------------------------
- MCU Pins
-------------------------------------------------------------------------------*/
 #include "pindefs.h"
 
-/*------------------------------------------------------------------------------
- Project Includes
-------------------------------------------------------------------------------*/
 #include "lora.h"
 #include "telemetry.h"
-#include "usb.h"
-#include "main.h"
 
-/*------------------------------------------------------------------------------
- Global Variables
-------------------------------------------------------------------------------*/
+/* Globals -------------------------------------------------------------------*/
 static LORA_ASYNC_OP_MODE op_mode = LORA_ASYNC_OFF;
 static LORA_TX_FSM_STATE tx_fsm = LORA_TX_STATE_BLOCKING;
 
@@ -52,18 +61,14 @@ static uint8_t       register_contents[2] = {0x00, 0x00};
 static TELEMETRY_MESSAGE  payload;
 static uint8_t       burst_write_buf[TELEMETRY_MESSAGE_SIZE + 1];
 
-/*------------------------------------------------------------------------------
- Static Prototypes
-------------------------------------------------------------------------------*/
+/* Statics ------------------------------------------------------------------*/
 
 static void lora_tx_update
     (
     LORA_FSM_EVENT update_cause /* i: which kind of event triggered this update */
     );
 
-/*------------------------------------------------------------------------------
- Procedures
-------------------------------------------------------------------------------*/
+/* Procedures ---------------------------------------------------------------*/
 
 /**
  * @brief Update asynchronous LoRa FSMs.
@@ -142,11 +147,6 @@ if( ( lora_status & ( LORA_FAIL | LORA_TRANSMIT_FAIL | LORA_TIMEOUT_FAIL ) )
     op_mode = LORA_ASYNC_OFF; /* stop handling lora events */
     return;
     }
-
-// ETS TEMP: Test
-// telemetry_get_next_message();
-// lora_transmit( &payload, sizeof( TELEMETRY_MESSAGE ) );
-// return;
 
 /* update the current telemetry state */
 switch( tx_fsm )
@@ -302,6 +302,5 @@ switch( tx_fsm )
         }
         
     }
-
 
 } /* lora_tx_update */
