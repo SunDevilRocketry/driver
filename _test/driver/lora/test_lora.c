@@ -866,12 +866,12 @@ Test Cases
 unit_test tests[] =
 	{
 	/* lora_async.c */
-	{ "async_tx", test_async_tx },
-	{ "async_fsm_mode_select", test_async_fsm_mode_select },
+	{ "async_tx", test_async_tx, "RQ.DRIVER.00007, RQ.DRIVER.00010" },
+	{ "async_fsm_mode_select", test_async_fsm_mode_select, "RQ.DRIVER.00010" },
 	/* lora.c */
-	{ "lora_init_configure", test_lora_init_configure },
-	{ "lora_transmit", test_lora_transmit },
-	{ "lora_receive", test_lora_receive },
+	{ "lora_init_configure", test_lora_init_configure, "RQ.DRIVER.00009" },
+	{ "lora_transmit", test_lora_transmit, "RQ.DRIVER.00007" },
+	{ "lora_receive", test_lora_receive, "RQ.DRIVER.00008" },
 	{ "lora_set_chip_mode", test_lora_set_chip_mode },
 	{ "lora_reset", test_lora_reset },
 	{ "lora_read_register_it", test_lora_read_register_it },

@@ -32,6 +32,8 @@ RQ.DRIVER.00006 - The library shall be designed to consume the LSM6DSV320x Platf
 
 ### 2.3. Camera
 
+This driver was requested for a program that never used it. It has been left for future reference, but is not maintained by SDR.
+
 ### 2.4. Flash
 
 ### 2.5. GPS
@@ -47,6 +49,14 @@ RQ.DRIVER.00006 - The library shall be designed to consume the LSM6DSV320x Platf
 This driver was written for a legacy piece of hardware and is no longer in use. The driver has been left for future reference, but is not maintained by SDR.
 
 ### 2.10. LoRa
+
+RQ.DRIVER.00007 - The library shall provide a method to send data via a RFM95 LoRa modem.
+
+RQ.DRIVER.00008 - The library shall provide a method to receive data via a RFM95 LoRa modem.
+
+RQ.DRIVER.00009 - The library shall provide a method to configure wireless transmission parameters.
+
+RQ.DRIVER.00010 - The library shall provide a method to transmit data without blocking the CPU.
 
 ### 2.11. Onboard Flash
 
