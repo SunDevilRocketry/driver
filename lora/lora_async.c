@@ -65,6 +65,11 @@ static void lora_tx_update
  Procedures
 ------------------------------------------------------------------------------*/
 
+/**
+ * @brief Update asynchronous LoRa FSMs.
+ * 
+ * @param update_cause The cause of the update to the FSMs.
+ */
 void lora_fsm_update
     (
     LORA_FSM_EVENT update_cause
@@ -82,6 +87,12 @@ switch ( op_mode )
 } /* lora_fsm_update */
 
 
+/**
+ * @brief Set the LoRa FSM mode.
+ * 
+ * @param new_mode The new mode to set.
+ * @return LORA_STATUS The current status of LoRa async operation.
+ */
 LORA_STATUS lora_fsm_set_mode
     (
     LORA_ASYNC_OP_MODE new_mode
@@ -111,15 +122,11 @@ return lora_status;
 } /* lora_fsm_set_mode */
 
 
-/*********************************************************************************
-*                                                                                *
-* FUNCTION:                                                                      * 
-* 		lora_tx_update                                                           *
-*                                                                                *
-* DESCRIPTION:                                                                   * 
-* 		Update the lora async transmission FSM.                                  *
-*                                                                                *
-*********************************************************************************/
+/**
+ * @brief The LoRa transmission FSM
+ * 
+ * @param LORA_FSM_EVENT The cause of the update to the FSM.
+ */
 static void lora_tx_update
     (
     LORA_FSM_EVENT update_cause /* i: which kind of event triggered this update */

@@ -87,7 +87,8 @@ C_INCLUDES =                                           \
 -I$(ROOT_DIR)/init/rev2/config/Inc				   \
 -I$(INIT_DIR)/config/Inc                               \
 -I$(TEST_DIR)/framework/src				   	   \
--I$(TEST_DIR)/driver/gps/mock/
+-I$(TEST_DIR)/driver/gps/mock/					\
+-I$(TEST_DIR)/utilities
 
 # Preprocessor definitions
 C_DEFS =         \
