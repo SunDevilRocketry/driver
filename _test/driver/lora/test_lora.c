@@ -403,7 +403,7 @@ TEST_begin_nested_case( "Initialization accepts a valid configuration" );
 			{ "Standby opmode write", 15, 0 }
 		};
 
-	for( uint16_t i = 0; i < array_size( failures ); i++ )
+	for( int i = 0; i < array_size( failures ); i++ )
 		{
 		TEST_begin_nested_case( failures[i].description );
 			{
