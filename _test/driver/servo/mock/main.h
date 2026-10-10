@@ -12,7 +12,7 @@
 #ifndef MAIN_H
 #define MAIN_H
 
-#include "sdr_pin_defines_A0002.h"
+#include "pindefs.h"
 #include "stm32h7xx_hal_uart.h"
 #include "usb.h"
 #include <stdint.h>
