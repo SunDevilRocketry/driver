@@ -54,3 +54,19 @@ HAL_StatusTypeDef HAL_UART_Transmit
 {
 return mocked_return;
 }
+
+HAL_StatusTypeDef HAL_UART_Init
+    (
+    UART_HandleTypeDef *huart
+    )
+{
+return mocked_return;
+}
+
+HAL_StatusTypeDef HAL_UART_DeInit
+    (
+    UART_HandleTypeDef *huart
+    )
+{
+return mocked_return;
+}
