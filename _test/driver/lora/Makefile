@@ -1,14 +1,15 @@
-################################################################
+################################################################ 
 #
-# servo unit tests (based on gcc)
+# gps.c unit tests (based on gcc)
 #
 ################################################################
+
 
 ################################################################
 # target
 ################################################################
-TEST = servo
-TARGET = servo.out
+TEST = test_lora
+TARGET = test_lora.out
 
 
 ################################################################
@@ -29,30 +30,36 @@ OPT   = -Og
 BUILD_DIR = build
 
 # base directory
-# depending on your test, this might not be correct.
 ROOT_DIR  = ../../../..
 
-# directory shortcuts for includes and sources
+# library directory
 LIB_DIR = $(ROOT_DIR)/lib
-MOD_DIR = $(ROOT_DIR)/mod
+
 INIT_DIR = $(ROOT_DIR)/init
+
 DRIVER_DIR = $(ROOT_DIR)/driver
+
 TEST_DIR = ../../
+
 
 ################################################################
 # source 
 ################################################################
 
 # C sources
-TEST_SOURCES =                                   				  	\
-test_servo.c                       								  	\
-mock/MOCK_hal.c													  	\
-mock/MOCK_led.c													  	\
-mock/MOCK_usb.c													  	
+TEST_SOURCES =                                   				  \
+test_lora.c                       								  \
+mock/MOCK_hal.c
 
 # Tested Source Files
-COV_C_SOURCES =													  \
-$(ROOT_DIR)/driver/servo/servo.c
+COV_C_SOURCES =	
+
+# Sources #included by test_lora.c (not compiled separately, but counted in coverage)
+COV_INCLUDED_SOURCES =											  \
+$(ROOT_DIR)/driver/lora/lora_async.c							  \
+$(ROOT_DIR)/driver/lora/lora.c
+
+COV_FILTER_SOURCES = $(COV_C_SOURCES) $(COV_INCLUDED_SOURCES)
 
 # Framework
 FRAMEWORK_SOURCES =												  \
@@ -64,41 +71,43 @@ C_SOURCES = $(TEST_SOURCES) $(COV_C_SOURCES) $(FRAMEWORK_SOURCES)
 ################################################################
 # Compiler 
 ################################################################
-
-# You might be used to arm-none-eabi-gcc, but unit tests are run locally!
 CC = gcc
+
 
 ################################################################
 # C flags 
 ################################################################
 
 # C Includes
-# This should include a path to all of the headers used in your test
 C_INCLUDES =                                           \
 -I.                                                    \
--I$(ROOT_DIR)/driver/servo/							   \
--I$(ROOT_DIR)/mod/sensor/							   \
+-Imock                                                 \
+-I$(ROOT_DIR)/driver/lora/								   \
 -I$(ROOT_DIR)/driver/imu/								   \
+-I$(ROOT_DIR)/driver/baro/								   \
+-I$(ROOT_DIR)/driver/gps/								   \
 -I$(ROOT_DIR)/driver/usb/								   \
--I$(ROOT_DIR)/driver/led/								   \
--I$(ROOT_DIR)/init/rev2/						   \
+-I$(ROOT_DIR)/mod/commands/								   \
+-I$(ROOT_DIR)/mod/error_sdr/								   \
+-I$(ROOT_DIR)/mod/math_sdr/								   \
+-I$(ROOT_DIR)/mod/sensor/								   \
+-I$(ROOT_DIR)/mod/telemetry/								   \
 -I$(LIB_DIR)                                           \
 -I$(LIB_DIR)/Drivers/STM32H7xx_HAL_Driver/Inc          \
 -I$(LIB_DIR)/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy   \
 -I$(LIB_DIR)/Drivers/CMSIS/Device/ST/STM32H7xx/Include \
 -I$(LIB_DIR)/Drivers/CMSIS/Include                     \
--I$(ROOT_DIR)/init/rev2/config/Inc			   \
--I$(TEST_DIR)/framework/src                       \
--I$(TEST_DIR)/driver/servo/mock					\
+-I$(ROOT_DIR)/init/rev2/config/Inc				   \
+-I$(INIT_DIR)/config/Inc                               \
+-I$(TEST_DIR)/framework/src				   	   \
+-I$(TEST_DIR)/driver/gps/mock/					\
 -I$(TEST_DIR)/utilities
 
 # Preprocessor definitions
-# Don't worry about the defs and flags unless you know what you're doing
 C_DEFS =         \
 -DUSE_HAL_DRIVER \
 -DSTM32H750xx    \
 -DFLIGHT_COMPUTER \
--DCANARD		 \
 -DUNIT_TEST
 
 CFLAGS = $(C_INCLUDES) $(C_DEFS) $(OPT) -Wall -g
@@ -129,11 +138,9 @@ all: clean $(BUILD_DIR)/$(TARGET)
 OBJECTS = $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o)))
 vpath %.c $(sort $(dir $(C_SOURCES)))
 
-# Compile
 $(BUILD_DIR)/%.o: %.c $(BUILD_DIR)
 	$(CC) -c $(CFLAGS) $< -o $@
 
-# Link
 $(BUILD_DIR)/$(TARGET): $(OBJECTS) 
 	$(CC) $(OBJECTS) -o $@ -lgcov
 
@@ -151,19 +158,14 @@ test:
 	tail -n 7 "results.txt"
 	mkdir -p coverage
 	gcovr $(BUILD_DIR) \
-		--filter $(abspath $(COV_C_SOURCES)) \
-		--html-details coverage/coverage.html \
+		$(foreach f,$(COV_FILTER_SOURCES),--filter $(abspath $(f))) \
+		--html-details coverage/coverage.html  \
 		--json coverage/coverage.json
 
 ################################################################
 # clean up 
 ################################################################
 
-################################################################
-# clean up 
-################################################################
-
-# Windows users should use git bash so this command works as expected.
 clean:
 	-rm -fR $(BUILD_DIR)
 
