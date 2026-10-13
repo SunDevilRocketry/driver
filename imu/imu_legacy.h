@@ -6,7 +6,7 @@
   *
   * @note  Hardware Assumptions:
   *        Target: A0002 Rev2 PCB
-  *        IMU:    Bosch BMI270 (6-axis accel + gyro), I2C address IMU_ADDR
+  *        IMU:    Bosch BMI270 (6-axis accel + gyro), I2C address IMU_I2C_ADDR
   *        Bus:    I2C2
   *
   ******************************************************************************
@@ -43,9 +43,6 @@ extern "C" {
 /*------------------------------------------------------------------------------
  Macros 
 ------------------------------------------------------------------------------*/
-
-/** @brief IMU (BMI270) I2C address, pre-shifted for HAL 8-bit addressing     */
-#define IMU_ADDR                0x68<<1
 
 /** @brief BMI270 CHIP_ID expected value                                     */
 #define IMU_ID                   0x24
@@ -257,16 +254,12 @@ typedef struct _IMU_CONFIG
     IMU_SENSOR_ENABLE sensor_enable;      /* Enabled Sensors                    */
     IMU_ODR_SETTING   acc_odr;            /* Accelerometer Output Data Rate     */ 
     IMU_ODR_SETTING   gyro_odr;           /* Gyroscope Output Data Rate         */
-    MAG_ODR_SETTING   mag_odr;            /* Magnetometer Output Data Rate      */
     IMU_FILTER_CONFIG acc_filter;         /* Accelerometer Filter Config        */
     IMU_FILTER_CONFIG gyro_filter;        /* Gyroscope Filter Config            */
     IMU_FILTER_MODE   acc_filter_mode;    /* Accelerometer Filtering Mode       */
     IMU_FILTER_MODE   gyro_filter_mode;   /* Gyroscope Filtering Mode           */
     IMU_ACC_RANGE     acc_range;          /* Accelerometer Measurement Range    */
     IMU_GYRO_RANGE    gyro_range;         /* Gyroscope Measurement Range        */
-    MAG_OP_MODE       mag_op_mode;        /* Magnetometer Operation Mode        */
-    uint8_t           mag_xy_repititions; /* Magnetometer XY Measurement Reps   */
-    uint8_t           mag_z_repititions;  /* Magnetometer Z  Measurement Reps   */
     } IMU_CONFIG;
 
 /** @brief Standard status return codes for all IMU driver operations        */
@@ -326,16 +319,6 @@ IMU_STATUS imu_get_accel_and_gyro
     );
 
 /**
- * @brief  Blocking read of magnetometer X/Y/Z.
- * @param  pIMU: Destination struct for the magnetometer readout.
- * @return IMU_STATUS
- */
-IMU_STATUS imu_get_mag_xyz
-    (
-    IMU_RAW *pIMU
-    );
-
-/**
  * @brief  Reads and verifies the IMU's CHIP_ID register.
  * @param  pdevice_id: Destination for the returned device ID.
  * @return IMU_STATUS
@@ -345,17 +328,8 @@ IMU_STATUS imu_get_device_id
     uint8_t* pdevice_id 
     );
 
-/* Change configuration of accel, gyro, mag */
-void IMU_config
-    (
-    IMU_CONFIG *pimu_config,
-    uint8_t accel_setting,
-    uint16_t gyro_setting,
-    uint16_t mag_setting
-    );
-
 /** @brief Getter for the static imu_data_ready flag                         */
-bool imu_get_imu_data_ready
+bool imu_get_data_ready
     (
     void
     );

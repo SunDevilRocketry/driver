@@ -34,10 +34,6 @@ extern "C" {
  Macros 
 ------------------------------------------------------------------------------*/
 
-/* I2C Device Params */
-#define BARO_I2C_ADDR	    ( 0x76 << 1 )	/* 1110110 -> 0x76 */
-
-
 /* Barometric Pressure Sensor register addresses */
 #define BARO_REG_CHIP_ID        ( 0x00 )
 #define BARO_REG_ERR_REG        ( 0x02 )

@@ -59,27 +59,13 @@ uint8_t bmi270_init_file[] = {
 /** @brief Raw double-buffer target for interrupt-mode accel/gyro reads       */
 uint8_t imu_raw_buffer[12];
 /** @brief Parsed interrupt-mode accel/gyro/mag sample, published by imu_it_handler() */
-IMU_RAW imu_raw_processed;
+static IMU_RAW imu_raw_processed;
 /** @brief Set true by imu_it_handler() once imu_raw_processed's accel/gyro fields are valid */
 static atomic_bool imu_data_ready;
-
-/** @brief Raw double-buffer target for interrupt-mode magnetometer reads     */
-uint8_t mag_raw_buffer[8];
-/** @brief Set true by imu_it_handler() once imu_raw_processed's mag fields are valid */
-static atomic_bool mag_data_ready;
-
-/** @brief BMM150 factory trim coefficients, populated by mag_init()          */
-MAG_TRIM mag_trim;
 
 /*------------------------------------------------------------------------------
  Internal function prototypes 
 ------------------------------------------------------------------------------*/
-
-/** @brief Initialize the magnetometer                                       */
-static IMU_STATUS mag_init
-    (
-    IMU_CONFIG* imu_config_ptr
-    );
 
 /** @brief Read IMU registers (blocking)                                     */
 static IMU_STATUS read_imu_regs
@@ -104,20 +90,6 @@ static IMU_STATUS write_imu_regs
     uint32_t num_regs  /* Number of registers */
     ); 
 
-/** @brief Read Magnetometer registers (blocking)                            */
-static IMU_STATUS read_mag_regs
-    (
-    uint8_t  reg_addr, /* Register address    */
-    uint8_t* data_ptr, /* Register data       */
-    uint8_t  num_regs  /* Number of registers */
-    ); 
-
-/** @brief Write to a specified magnetometer register (blocking)             */
-static IMU_STATUS write_mag_reg 
-    (
-    uint8_t reg_addr, /* Register address    */
-    uint8_t data      /* Register data       */
-    ); 
 
 /** @brief Read IMU registers (interrupt mode)                               */
 static IMU_STATUS read_imu_regs_IT
@@ -125,14 +97,6 @@ static IMU_STATUS read_imu_regs_IT
     uint8_t  reg_addr, /* Register address            */
     uint8_t* data_ptr, /* Register data               */ 
     uint8_t  num_regs  /* Number of registers to read */
-    );
-
-/** @brief Read Magnetometer registers (interrupt mode)                      */
-static IMU_STATUS read_mag_regs_IT 
-    (
-    uint8_t  reg_addr,
-    uint8_t* data_ptr, 
-    uint8_t  num_regs
     );
 
 
@@ -185,7 +149,7 @@ imu_data_ready = false;
 ------------------------------------------------------------------------------*/
 
 /* disable interrupts while initializing */
-HAL_NVIC_DisableIRQ(I2C2_EV_IRQn);
+HAL_NVIC_DisableIRQ(IMU_MAG_I2C_EV_IRQn);
 
 /* Read IMU ID and verify correct ID */
 imu_status = imu_get_device_id( &imu_dev_id );
@@ -287,15 +251,8 @@ if ( imu_status != IMU_OK )
         return IMU_CONFIG_FAIL; 
         }
 
-    /* Initialize the magnetometer */
-    imu_status = mag_init( imu_config_ptr );
-    if ( imu_status != IMU_OK )
-        {
-        return IMU_MAG_INIT_FAIL;
-        }
-
 /* re-enable interrupts while initializing */
-HAL_NVIC_EnableIRQ(I2C2_EV_IRQn);
+HAL_NVIC_EnableIRQ(IMU_MAG_I2C_EV_IRQn);
 
 /* IMU Inititialization Successful */
 return IMU_OK;
@@ -460,62 +417,6 @@ return IMU_OK;
 
 
 /**
-  * @brief  Blocking read of magnetometer X/Y/Z.
-  * @param  pIMU: Destination struct for the magnetometer readout.
-  * @return IMU_STATUS
-  */
-IMU_STATUS imu_get_mag_xyz
-    (
-    IMU_RAW *pIMU
-    )
-{
-/*------------------------------------------------------------------------------
- Local variables 
-------------------------------------------------------------------------------*/
-uint8_t    regMag[8];      /* Magnetometer register bytes      */
-int16_t    mag_x_raw;      /* Raw magnetometer sensor readouts */
-int16_t    mag_y_raw;
-int16_t    mag_z_raw;
-uint16_t   mag_hall_raw;
-IMU_STATUS imu_status;     /* IMU status return codes           */
-
-
-/*------------------------------------------------------------------------------
- API function implementation 
-------------------------------------------------------------------------------*/
-
-/* Read MAG_X, MAG_Y, MAG_Z high byte and low byte registers */
-imu_status = read_mag_regs( MAG_REG_DATAX_L, 
-                            &regMag[0]     , 
-                            sizeof( regMag ) );
-
-/* Check for HAL IMU error */
-if ( imu_status == IMU_TIMEOUT )
-    {
-    return IMU_TIMEOUT;
-    }
-
-/* Combine high byte and low byte to 16 bit data */
-mag_x_raw  = (   (uint16_t) regMag[1]                        << MAG_XY_MSB_BITSHIFT ) | 
-             ( ( (uint16_t) regMag[0] & MAG_XY_LSB_BITMASK ) >> MAG_XY_LSB_BITSHIFT );
-mag_y_raw  = (   (uint16_t) regMag[3]                        << MAG_XY_MSB_BITSHIFT ) | 
-             ( ( (uint16_t) regMag[2] & MAG_XY_LSB_BITMASK ) >> MAG_XY_LSB_BITSHIFT );
-mag_z_raw  = (   (uint16_t) regMag[5]                        << MAG_Z_MSB_BITSHIFT  ) | 
-             ( ( (uint16_t) regMag[4] & MAG_Z_LSB_BITMASK )  >> MAG_Z_LSB_BITSHIFT  );
-mag_hall_raw = (   (uint16_t) regMag[7]                            << MAG_RHALL_MSB_BITSHIFT  ) | 
-               ( ( (uint16_t) regMag[6] & MAG_RHALL_LSB_BITMASK )  >> MAG_RHALL_LSB_BITSHIFT  );
-
-/* Export sensor data */
-pIMU->mag_x    = mag_x_raw;
-pIMU->mag_y    = mag_y_raw;
-pIMU->mag_z    = mag_z_raw;
-pIMU->mag_hall = mag_hall_raw;
-
-return IMU_OK;
-} /* imu_get_mag_xyz */
-
-
-/**
   * @brief  Reads and verifies the IMU's CHIP_ID register.
   * @param  pdevice_id: Destination for the returned device ID.
   * @return IMU_STATUS: IMU_UNRECOGNIZED_OP if the ID doesn't match IMU_ID.
@@ -578,8 +479,8 @@ HAL_StatusTypeDef hal_status;    /* Status of I2C HAL */
 ------------------------------------------------------------------------------*/
 
 /* Read I2C register */
-hal_status = HAL_I2C_Mem_Read( &( IMU_I2C )        , 
-                               IMU_ADDR            , 
+hal_status = HAL_I2C_Mem_Read( &( IMU_MAG_I2C )        , 
+                               IMU_I2C_ADDR            , 
                                reg_addr            , 
                                I2C_MEMADD_SIZE_8BIT, 
                                data_ptr            , 
@@ -598,14 +499,14 @@ else
 
 
 /** @brief  Returns the imu_data_ready flag.                                 */
-bool imu_get_imu_data_ready
+bool imu_get_data_ready
     (
     void
     ) 
 {
 return imu_data_ready;
 
-} /* imu_get_imu_data_ready */
+} /* imu_get_data_ready */
 
 
 /**
@@ -635,8 +536,8 @@ hal_status = HAL_OK;
 /*------------------------------------------------------------------------------
  Implementation 
 ------------------------------------------------------------------------------*/
-hal_status = HAL_I2C_Mem_Write( &( IMU_I2C )        , 
-                                IMU_ADDR            , 
+hal_status = HAL_I2C_Mem_Write( &( IMU_MAG_I2C )        , 
+                                IMU_I2C_ADDR            , 
                                 reg_addr            , 
                                 I2C_MEMADD_SIZE_8BIT, 
                                 &data               , 
@@ -682,8 +583,8 @@ hal_status = HAL_OK;
 /*------------------------------------------------------------------------------
  Implementation 
 ------------------------------------------------------------------------------*/
-hal_status = HAL_I2C_Mem_Write( &( IMU_I2C ), 
-                                IMU_ADDR            , 
+hal_status = HAL_I2C_Mem_Write( &( IMU_MAG_I2C ), 
+                                IMU_I2C_ADDR            , 
                                 reg_addr            , 
                                 I2C_MEMADD_SIZE_8BIT, 
                                 data_ptr            , 
@@ -698,51 +599,6 @@ else
     return IMU_OK;
     }
 } /* write_imu_regs */
-
-
-/**
-  * @brief  Write to a specified magnetometer register (blocking).
-  * @param  reg_addr: Register address.
-  * @param  data:     Register data.
-  * @return IMU_STATUS
-  */
-static IMU_STATUS write_mag_reg 
-    (
-    uint8_t reg_addr, /* Register address    */
-    uint8_t data      /* Register data       */
-    ) 
-{
-/*------------------------------------------------------------------------------
- Local variables  
-------------------------------------------------------------------------------*/
-HAL_StatusTypeDef hal_status;    /* Status of I2C HAL */
-
-
-/*------------------------------------------------------------------------------
- Initializations 
-------------------------------------------------------------------------------*/
-hal_status = HAL_OK;
-
-
-/*------------------------------------------------------------------------------
- Implementation 
-------------------------------------------------------------------------------*/
-hal_status = HAL_I2C_Mem_Write( &( IMU_I2C )        , 
-                                IMU_MAG_ADDR        , 
-                                reg_addr            , 
-                                I2C_MEMADD_SIZE_8BIT, 
-                                &data               , 
-                                sizeof( uint8_t )   , 
-                                HAL_IMU_TIMEOUT );
-if ( hal_status != HAL_OK )
-    {
-    return IMU_I2C_ERROR;
-    }
-else
-    {
-    return IMU_OK;
-    }
-} /* write_mag_reg */
 
 
 /**
@@ -795,8 +651,8 @@ hal_status = HAL_OK;
 ------------------------------------------------------------------------------*/
 
 /* Read I2C register */
-hal_status = HAL_I2C_Mem_Read_IT( &( IMU_I2C )        , 
-                               IMU_ADDR            , 
+hal_status = HAL_I2C_Mem_Read_IT( &( IMU_MAG_I2C ) , 
+                               IMU_I2C_ADDR        , 
                                reg_addr            , 
                                I2C_MEMADD_SIZE_8BIT, 
                                data_ptr            , 
@@ -830,64 +686,22 @@ IMU_STATUS imu_it_handler
     )
 {
 IMU_STATUS imu_status = IMU_OK;
-if( !imu_data_ready && !mag_data_ready )
-    {
-    /*------------------------------------------------------------------------------
-    Handle IT signal
-    ------------------------------------------------------------------------------*/
-    /* Combine high byte and low byte to 16 bit data  */
-    imu_raw_processed.accel_x = (int16_t) ( (uint16_t) imu_raw_buffer[1] << 8 | imu_raw_buffer[0] );
-    imu_raw_processed.accel_y = (int16_t) ( (uint16_t) imu_raw_buffer[3] << 8 | imu_raw_buffer[2] );
-    imu_raw_processed.accel_z = (int16_t) ( (uint16_t) imu_raw_buffer[5] << 8 | imu_raw_buffer[4] );
-    imu_raw_processed.gyro_x  = (int16_t) ( (uint16_t) imu_raw_buffer[7] << 8 | imu_raw_buffer[6] );
-    imu_raw_processed.gyro_y  = (int16_t) ( (uint16_t) imu_raw_buffer[9] << 8 | imu_raw_buffer[8] );
-    imu_raw_processed.gyro_z  = (int16_t) ( (uint16_t) imu_raw_buffer[11] << 8 | imu_raw_buffer[10] );
 
-    imu_data_ready = true;
+/*------------------------------------------------------------------------------
+Handle IT signal
+------------------------------------------------------------------------------*/
+/* Combine high byte and low byte to 16 bit data  */
+imu_raw_processed.accel_x = (int16_t) ( (uint16_t) imu_raw_buffer[1] << 8 | imu_raw_buffer[0] );
+imu_raw_processed.accel_y = (int16_t) ( (uint16_t) imu_raw_buffer[3] << 8 | imu_raw_buffer[2] );
+imu_raw_processed.accel_z = (int16_t) ( (uint16_t) imu_raw_buffer[5] << 8 | imu_raw_buffer[4] );
+imu_raw_processed.gyro_x  = (int16_t) ( (uint16_t) imu_raw_buffer[7] << 8 | imu_raw_buffer[6] );
+imu_raw_processed.gyro_y  = (int16_t) ( (uint16_t) imu_raw_buffer[9] << 8 | imu_raw_buffer[8] );
+imu_raw_processed.gyro_z  = (int16_t) ( (uint16_t) imu_raw_buffer[11] << 8 | imu_raw_buffer[10] );
 
-    /*------------------------------------------------------------------------------
-    Trigger mag read
-    ------------------------------------------------------------------------------*/
-    imu_status = read_mag_regs_IT( MAG_REG_DATAX_L, 
-                                mag_raw_buffer, 
-                                8 );
-    return imu_status;
-    }
-else if( imu_data_ready && !mag_data_ready )
-    {
-    imu_raw_processed.mag_x
-               = (   (uint16_t) mag_raw_buffer[1]                         << MAG_XY_MSB_BITSHIFT ) | 
-                 ( ( (uint16_t) mag_raw_buffer[0] & MAG_XY_LSB_BITMASK ) >> MAG_XY_LSB_BITSHIFT );
-    imu_raw_processed.mag_y  
-               = (   (uint16_t) mag_raw_buffer[3]                         << MAG_XY_MSB_BITSHIFT ) | 
-                 ( ( (uint16_t) mag_raw_buffer[2] & MAG_XY_LSB_BITMASK ) >> MAG_XY_LSB_BITSHIFT );
-    imu_raw_processed.mag_z  
-               = (   (uint16_t) mag_raw_buffer[5]                         << MAG_Z_MSB_BITSHIFT  ) | 
-                 ( ( (uint16_t) mag_raw_buffer[4] & MAG_Z_LSB_BITMASK )  >> MAG_Z_LSB_BITSHIFT  );
-    imu_raw_processed.mag_hall  
-               = (   (uint16_t) mag_raw_buffer[7]                         << MAG_RHALL_MSB_BITSHIFT  ) | 
-                 ( ( (uint16_t) mag_raw_buffer[6] & MAG_RHALL_LSB_BITMASK )  >> MAG_RHALL_LSB_BITSHIFT  );
+imu_data_ready = true;
 
-    /* Sign-extend 13-bit and 15-bit values */
-    if (imu_raw_processed.mag_x & (1 << 12)) 
-        {
-        imu_raw_processed.mag_x |= ~((1 << 13) - 1);
-        }
-    if (imu_raw_processed.mag_y & (1 << 12)) 
-        {
-        imu_raw_processed.mag_y |= ~((1 << 13) - 1);
-        }
-    if (imu_raw_processed.mag_z & (1 << 14)) 
-        {
-        imu_raw_processed.mag_z |= ~((1 << 15) - 1);
-        }
-    
-    mag_data_ready = true;
+return imu_status;
 
-    return imu_status;
-    }
-
-return IMU_FAIL;
 } /* imu_it_handler */
 
 
@@ -911,52 +725,6 @@ memcpy( cpy_ptr, &imu_raw_processed, sizeof( IMU_RAW ) );
 
 return IMU_OK;
 } /* get_imu_it */
-
-
-/**
-  * @brief  Read the specified number of registers at one time from the
-  *         magnetometer module in the IMU (interrupt mode).
-  * @param  reg_addr: Starting register address.
-  * @param  data_ptr: Destination buffer.
-  * @param  num_regs: Number of registers to read.
-  * @return IMU_STATUS
-  */
-static IMU_STATUS read_mag_regs_IT 
-    (
-    uint8_t  reg_addr,
-    uint8_t* data_ptr, 
-    uint8_t  num_regs
-    )
-{
-/*------------------------------------------------------------------------------
- Local variables  
-------------------------------------------------------------------------------*/
-HAL_StatusTypeDef hal_status;     /* Status return code of I2C HAL */
-
-
-/*------------------------------------------------------------------------------
- API function implementation 
-------------------------------------------------------------------------------*/
-
-/* Read I2C registers */
-hal_status = HAL_I2C_Mem_Read_IT( &( IMU_I2C )     , 
-                               IMU_MAG_ADDR        , 
-                               reg_addr            , 
-                               I2C_MEMADD_SIZE_8BIT, 
-                               data_ptr            , 
-                               num_regs            );
-
-/* Return status code of I2C HAL */
-if ( hal_status != HAL_OK ) 
-    {
-    return IMU_MAG_ERROR;
-    }
-else 
-    {
-    return IMU_OK;
-    }
-
-} /* read_mag_regs_IT */
 
 
 /*******************************************************************************
