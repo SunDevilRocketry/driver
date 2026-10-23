@@ -126,15 +126,6 @@ static BARO_STATUS crc_verify
 
 /* Procedures ----------------------------------------------------------------*/
 
-/* TODO
- * [X] write baro_init and its helpers
- * [ ] write baro_get_IT (this is where the buffers will be converted to
- *   usable values and calculations applied to return the final float)
- * [X] write the timer interrupt creation functions
- * [ ] Make sure SPI NSS is done correctly
- * 
- */
-
 /**
  * @brief Initialize barometric pressure sensor
  *
@@ -368,7 +359,8 @@ switch ( baro_read_state )
 
     case BARO_READ_DONE: // No currently running read
         baro_read_state = BARO_CONV_PRESSURE;
-        baro_IT_handler(BARO_EVENT_START_READ); // Keep FSM logic in that function
+        HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+        baro_IT_handler(BARO_EVENT_START_READ); /* Keep FSM logic in that function */
         break;
 
     default: // Read in progress
@@ -394,7 +386,6 @@ BARO_STATUS baro_IT_handler
     )
 {
 switch(baro_read_state) {
-    // TODO actually deal with chip select pin
     case BARO_CONV_PRESSURE:
         if( update_cause != BARO_EVENT_START_READ )
             {
@@ -465,6 +456,7 @@ switch(baro_read_state) {
             }
         // 7. Called by HAL_SPI_TxRxCpltCallback(), switch to done state.
         success = BARO_OK;
+        HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
         update_state(BARO_READ_DONE);
         break;
     case BARO_READ_DONE:
