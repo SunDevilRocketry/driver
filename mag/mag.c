@@ -24,8 +24,11 @@
 #include <stdint.h>
 
 /* Project */
+#include "main.h"
 #include "mag.h"
 #include "sdr_pin_defines_A0010.h"
+#include "error_sdr.h"
+#include "debug_sdr.h"
 
 /* Definitions ----------------------------------------------------------*/
 #define MAG_I2C_ADDR 0x00 << 1 // TODO check if correct
@@ -38,7 +41,7 @@
 #define MAG_OTP_ERR_MASK  0xE0
 
 // If we implement more CMDs, turn this into a struct
-#define MAG_CMD_OTP_READ = 0x20
+#define MAG_CMD_OTP_READ 0x20
 
 // TODO define all of them
 typedef enum _MAG_REG
@@ -49,18 +52,11 @@ typedef enum _MAG_REG
     MAG_REG_OTP_STATUS = 0x55,
     MAG_REG_CMD        = 0x7E
     } MAG_REG;
-
-typedef enum _MAG_CMD
-    {
-    
-    } MAG_CMD;
     
 /* Global Variables ----------------------------------------------------------*/
 static uint16_t mag_otp[MAG_OTP_LEN];
 
 static MAG_STATUS ready = MAG_BUSY;
-
-static MAG_XYZ *mag_ptr;
 
 static uint8_t mag_read_buffer[MAG_BUFFER_LEN];
 
@@ -82,7 +78,7 @@ static MAG_STATUS read_reg
 static MAG_STATUS otp_reg_to_err_stat
     (
     uint8_t status,
-    MAG_STATUS default
+    MAG_STATUS default_status
     );
 
 /* Procedures ----------------------------------------------------------------*/
@@ -140,7 +136,7 @@ for(int addr = 0; addr < MAG_OTP_LEN; addr++) {
        }
 
        /* Check status */
-       if(status & MAG_OTP_ERR_MASK != 0) {
+       if((status & MAG_OTP_ERR_MASK) != 0) {
            /* Internal modem error */
            return otp_reg_to_err_stat(status, MAG_INIT_FAIL);
        }
@@ -156,7 +152,7 @@ for(int addr = 0; addr < MAG_OTP_LEN; addr++) {
     }
 
     /* Concatenate two bytes in array into a uint16_t */
-    mag_otp[addr] = (otp_const[0] << 8) | otp_cost[1];
+    mag_otp[addr] = (otp_const[0] << 8) | otp_const[1];
 }
 
 return MAG_OK;
@@ -176,9 +172,8 @@ MAG_STATUS mag_get_ready
     void
     )
 {
-debug_assert(true, ready == MAG_BUSY     |
-                   ready == MAG_OK       |
-                   ready == MAG_I2C_FAIL );
+debug_assert((ready == MAG_BUSY | ready == MAG_OK | ready == MAG_I2C_FAIL), ERROR_UNKNOWN_FATAL_ERROR);
+// TODO update error.h with its own error
 return ready;
 }
 
@@ -191,17 +186,15 @@ return ready;
  * @retval MAG_OK if successful, relevant error condition
  * otherwise
  */
-MAG_STATUS mag_get_xyz
+MAG_STATUS mag_start_read
     (
-    MAG_XYZ *mag_xyz
+    void
     )
 {
 /* Local variables */
 HAL_StatusTypeDef success;
 
 /* Implementation */
-mag_ptr = mag_xyz;
-
 success = HAL_I2C_Mem_Write_IT(&(MAG_I2C)           ,
                                 MAG_I2C_ADDR        ,
                                 MAG_REG_X_XLSB      ,
@@ -214,7 +207,7 @@ if(success == HAL_OK) {
     return MAG_OK;
 } else {
     ready = MAG_I2C_FAIL;
-    return MAG_I2C_FAIL
+    return MAG_I2C_FAIL;
 }
 }
 
@@ -271,7 +264,7 @@ if(success == HAL_OK) {
 static MAG_STATUS otp_reg_to_err_stat
     (
     uint8_t status,
-    MAG_STATUS default
+    MAG_STATUS default_status
     )
 {
 switch( (status & MAG_OTP_ERR_MASK) >> 5 ) {
@@ -286,6 +279,6 @@ switch( (status & MAG_OTP_ERR_MASK) >> 5 ) {
     case 5:
         return MAG_INV_CMD_ERR;
     default:
-        return default;
+        return default_status;
 }
 }

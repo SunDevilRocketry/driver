@@ -129,6 +129,11 @@ MAG_STATUS mag_init
     MAG_CONFIG *mag_config_ptr
     );
 
+MAG_STATUS mag_start_read
+    (
+    void
+    );
+
 MAG_STATUS mag_get_ready
     (
     void
