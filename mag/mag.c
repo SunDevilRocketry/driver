@@ -43,6 +43,7 @@
 typedef enum _MAG_REG
     {
     MAG_REG_PADCTRL    = 0x03,
+    MAG_REG_OTP_MSB    = 0x52,
     MAG_REG_OTP_STATUS = 0x55,
     MAG_REG_CMD        = 0x7E
     } MAG_REG;
@@ -111,7 +112,6 @@ if(success != HAL_OK) {
     return MAG_I2C_FAIL;
 }
 
-// TODO read constants buffer
 for(int addr = 0; addr < MAG_OTP_LEN; addr++) {
     uint8_t read_cmd = MAG_CMD_OTP_READ | (addr & MAG_OTP_ADDR_MASK);
     
@@ -138,7 +138,17 @@ for(int addr = 0; addr < MAG_OTP_LEN; addr++) {
        }
     } 
 
+    /* Read the constant */
+    uint8_t otp_const[2];
     
+    success = read_reg(otp_const, 2, MAG_REG_OTP_MSB);
+
+    if(success != HAL_OK) {
+        return MAG_I2C_FAIL;
+    }
+
+    /* Concatenate two bytes in array into a uint16_t */
+    mag_otp[addr] = (otp_const[0] << 8) | otp_cost[1];
 }
 
 return MAG_OK;
