@@ -32,7 +32,13 @@
 typedef enum _MAG_STATUS
     {
     MAG_OK = 0,
-    MAG_FAIL
+    MAG_I2C_FAIL      ,
+    MAG_INIT_FAIL     , /* Generic failure in init function */
+    MAG_BOOT_FAIL     , /* Boot failure code from modem */
+    MAG_PAGE_READ_FAIL, /* From modem */
+    MAG_PAGE_PROG_FAIL, /* From modem */
+    MAG_SIGN_ERR      , /* From modem */
+    MAG_INV_CMD_ERR   , /* From modem */
     } MAG_STATUS;
 
 /* Set pad driver strength (See BMM350 Datasheet section 5.6) */
