@@ -30,6 +30,7 @@
 /* Definitions ----------------------------------------------------------*/
 #define MAG_I2C_ADDR 0x00 << 1 // TODO check if correct
 #define MAG_TIMEOUT  10
+#define MAG_BUFFER_LEN 12 /* Byte length of a sensor read */
 
 #define MAG_OTP_ADDR_MASK 0x1F
 #define MAG_OTP_LEN       32
@@ -43,6 +44,7 @@
 typedef enum _MAG_REG
     {
     MAG_REG_PADCTRL    = 0x03,
+    MAG_REG_X_XLSB     = 0x31, /* Starting addr of sensor data */
     MAG_REG_OTP_MSB    = 0x52,
     MAG_REG_OTP_STATUS = 0x55,
     MAG_REG_CMD        = 0x7E
@@ -57,6 +59,10 @@ typedef enum _MAG_CMD
 static uint16_t mag_otp[MAG_OTP_LEN];
 
 static MAG_STATUS ready = MAG_BUSY;
+
+static MAG_XYZ *mag_ptr;
+
+static uint8_t mag_read_buffer[MAG_BUFFER_LEN];
 
 /* Private function prototypes -----------------------------------------------*/
 static MAG_STATUS write_reg
@@ -174,6 +180,42 @@ debug_assert(true, ready == MAG_BUSY     |
                    ready == MAG_OK       |
                    ready == MAG_I2C_FAIL );
 return ready;
+}
+
+/**
+ * @brief Initiate interrupt-based magnetometer read
+ *
+ * @details Uses HAL I2C IT call to read relevant sensors,
+ * and sets the ready varable accordingly
+ *
+ * @retval MAG_OK if successful, relevant error condition
+ * otherwise
+ */
+MAG_STATUS mag_get_xyz
+    (
+    MAG_XYZ *mag_xyz
+    )
+{
+/* Local variables */
+HAL_StatusTypeDef success;
+
+/* Implementation */
+mag_ptr = mag_xyz;
+
+success = HAL_I2C_Mem_Write_IT(&(MAG_I2C)           ,
+                                MAG_I2C_ADDR        ,
+                                MAG_REG_X_XLSB      ,
+                                I2C_MEMADD_SIZE_8BIT,
+                                mag_read_buffer     ,
+                                MAG_BUFFER_LEN);
+
+if(success == HAL_OK) {
+    ready = MAG_BUSY;
+    return MAG_OK;
+} else {
+    ready = MAG_I2C_FAIL;
+    return MAG_I2C_FAIL
+}
 }
 
 /* Private functions -----------------------------------------------*/
