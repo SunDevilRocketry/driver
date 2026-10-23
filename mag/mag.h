@@ -33,6 +33,7 @@ typedef enum _MAG_STATUS
     {
     MAG_OK = 0,
     MAG_I2C_FAIL      ,
+    MAG_BUSY          , /* Waiting for result */
     MAG_INIT_FAIL     , /* Generic failure in init function */
     MAG_BOOT_FAIL     , /* Boot failure code from modem */
     MAG_PAGE_READ_FAIL, /* From modem */

@@ -56,6 +56,8 @@ typedef enum _MAG_CMD
 /* Global Variables ----------------------------------------------------------*/
 static uint16_t mag_otp[MAG_OTP_LEN];
 
+static MAG_STATUS ready = MAG_BUSY;
+
 /* Private function prototypes -----------------------------------------------*/
 static MAG_STATUS write_reg
     (
@@ -152,6 +154,26 @@ for(int addr = 0; addr < MAG_OTP_LEN; addr++) {
 }
 
 return MAG_OK;
+}
+
+/**
+ * @brief See if most recently-requested mag read is ready
+ *
+ * @details Reads global ready variable set by mag_get_xyz (starts
+ * IT I2C read) and mag_it_handler
+ *
+ * @retval MAG_OK if ready, MAG_BUSY if waiting, MAG_I2C_FAIL
+ * if I2C read fails (only these values are allowed)
+ */
+MAG_STATUS mag_get_ready
+    (
+    void
+    )
+{
+debug_assert(true, ready == MAG_BUSY     |
+                   ready == MAG_OK       |
+                   ready == MAG_I2C_FAIL );
+return ready;
 }
 
 /* Private functions -----------------------------------------------*/
