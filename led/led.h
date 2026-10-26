@@ -54,21 +54,8 @@ typedef enum LED_COLOR_CODES
  Function Prototypes 
 ------------------------------------------------------------------------------*/
 
-/* Display Red to indicate software exception */
-void led_error_assert
-	(
-    void
-    );
-
 /* Reset the led */
 void led_reset
-	(
-    void
-    );
-
-/* Flash Red to indicate that the code hit a block of code not meant to be run
-   without blocking the program from running  */
-void led_error_flash
 	(
     void
     );
