@@ -1,279 +1,117 @@
-/*******************************************************************************
-*
-* FILE:
-* 		lora.c
-*
-* DESCRIPTION:
-* 		Contains API functions for transmating and receiving from the board's
-*       built-in LoRa module.
-*
-* COPYRIGHT:
-*       Copyright (c) 2025 Sun Devil Rocketry.
-*       All rights reserved.
-*
-*       This software is licensed under terms that can be found in the LICENSE
-*       file in the root directory of this software component.
-*       If no LICENSE file comes with this software, it is covered under the
-*       BSD-3-Clause.
-*
-*       https://opensource.org/license/bsd-3-clause
-*
-*******************************************************************************/
+/**
+  ******************************************************************************
+  * @file           : lora.c
+  * @brief          : Interfaces for wireless communication.
+  ******************************************************************************
+  * @copyright
+  *
+  * Copyright (c) 2026 Sun Devil Rocketry.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is covered under the   
+  * BSD-3-Clause.                                                          
+  *                                                                              
+  * https://opensource.org/license/bsd-3-clause
+  *
+  ******************************************************************************
+  @verbatim
+  ==============================================================================
+                      ##### Integration Guide #####
+  ==============================================================================
+  [..]
+  ## Dependencies:
+  - None (lora_async.c is an optional extension of this driver)
+  
+  ## Invariants (contract):
+  - The project must call lora_init() or lora_configure() before attempting
+    to use this library.
+  - The hardware must have an RFM95.
+  - This file's abstractions must not be broken as all assumptions rely on
+    the public interfaces being used for interaction.
+  - The project must register the following callbacks for the LORA_SPI handle.
+    All of these callbacks must deassert the NSS pin, and if lora_async is enabled
+    they must call lora_fsm_update with the event ID in parentheses:
+    - HAL_SPI_TxRxCpltCallback (LORA_FSM_EVENT_REG_READ_CPLT)
+    - HAL_SPI_TxCpltCallback (LORA_FSM_EVENT_WRITE_CPLT)
+  
+  ## Instructions:
+  - Call lora_init or lora_configure to set up the modem
+  ******************************************************************************
+  @endverbatim
+  */
 
-
-/*------------------------------------------------------------------------------
- Standard Includes
-------------------------------------------------------------------------------*/
+/* Includes ------------------------------------------------------------------*/
 #include <string.h>
 
-/*------------------------------------------------------------------------------
- MCU Pins
-------------------------------------------------------------------------------*/
 #include "pindefs.h"
 
-/*------------------------------------------------------------------------------
- Project Inlcudes
-------------------------------------------------------------------------------*/
 #include "lora.h"
-#include "usb.h"
-#include "main.h"
 
-/*------------------------------------------------------------------------------
- Global Variables
-------------------------------------------------------------------------------*/
+#define LORA_BLOCKING_TX_TIMEOUT 50
+
+/* Globals -------------------------------------------------------------------*/
 static LORA_STATUS lora_rx_done = LORA_WAITING;
 static bool is_lora_configured = false;
 
-/*------------------------------------------------------------------------------
-    Internal function prototypes
-------------------------------------------------------------------------------*/
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		LORA_SPI_Receive                                                       *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Wrapper function for HAL SPI transmit                                  *
-*                                                                              *
-*******************************************************************************/
-static LORA_STATUS LORA_SPI_Receive
+/* Static Prototypes ---------------------------------------------------------*/
+
+static LORA_STATUS spi_receive
     (
     uint8_t* read_buffer_ptr
-    )
-{
-/*------------------------------------------------------------------------------
-    Local variables
-------------------------------------------------------------------------------*/
-HAL_StatusTypeDef status;
+    );
 
-/*------------------------------------------------------------------------------
-    Implementation
-------------------------------------------------------------------------------*/
-
-/* Takes pointer to the read buffer. and puts output there */
-status = HAL_SPI_Receive( &(LORA_SPI), read_buffer_ptr, 1, LORA_TIMEOUT );
-
-if ( status == HAL_OK )
-    {
-    /* Successful initializaiton */
-    return LORA_OK;
-    }
-
-/* Failed initialization */
-return LORA_FAIL;
-}
-
-static LORA_STATUS LORA_SPI_Transmit_Byte
+static LORA_STATUS spi_transmit_byte
     (
     uint8_t byte
-    )
-{
-/*------------------------------------------------------------------------------
-    Local Variables
-------------------------------------------------------------------------------*/
-HAL_StatusTypeDef status;
+    );
 
-/*------------------------------------------------------------------------------
-    Implementation
-------------------------------------------------------------------------------*/
-/* Takes register and data to write (1 byte) and writes that register. */
-status = HAL_SPI_Transmit( &(LORA_SPI), &byte, 1, LORA_TIMEOUT);
-
-if (status == HAL_OK)
-    {
-    /* SPI transmpit successful */
-    return LORA_OK;
-    }
-
-return LORA_FAIL;
-}
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		LORA_SPI_Transmit_Data                                                               *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Transmit data over SPI                                                 *
-*                                                                              *
-*******************************************************************************/
-static LORA_STATUS LORA_SPI_Transmit_Data
+static LORA_STATUS spi_transmit_data
     (
     LORA_REGISTER_ADDR reg,
     uint8_t data
-    )
-{
-HAL_StatusTypeDef status;
+    );
 
-/* Takes register and data to write and writes that register. */
-uint8_t transmitBuffer[2] = { reg, data };
-status = HAL_SPI_Transmit( &(LORA_SPI), &transmitBuffer[0], 2, LORA_TIMEOUT);
-
-if (status == HAL_OK){
-    return LORA_OK;
-} else return LORA_FAIL;
-}
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_read_register                                                     *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Read internal modem register                                           *
-*                                                                              *
-*******************************************************************************/
-static LORA_STATUS lora_read_register
+static LORA_STATUS read_register
     (
     LORA_REGISTER_ADDR lora_register,
     uint8_t* pRegData
-    )
-{
-LORA_STATUS transmit_status, receive_status;
+    );
 
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
-
-transmit_status = LORA_SPI_Transmit_Byte( (lora_register & 0x7F) );
-receive_status = LORA_SPI_Receive( pRegData );
-
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
-
-if (transmit_status + receive_status == 0){
-    return LORA_OK;
-} else {
-    return LORA_FAIL;
-}
-}
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_read_register_buffer                                              *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Read buffer from internal modem register                               *
-*                                                                              *
-*******************************************************************************/
-static LORA_STATUS lora_read_register_buffer
+static LORA_STATUS read_register_buffer
     (
     LORA_REGISTER_ADDR lora_register,
     uint8_t* pRegData,
     uint8_t buffer_len
-    )
-{
-LORA_STATUS status;
-HAL_StatusTypeDef hal_status;
+    );
 
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
-
-status = LORA_SPI_Transmit_Byte( (lora_register & 0x7F) );
-if( status != LORA_OK )
-    return LORA_FAIL;
-
-hal_status = HAL_SPI_Receive( &(LORA_SPI), pRegData, buffer_len, LORA_TIMEOUT );
-if( hal_status != HAL_OK )
-    return LORA_FAIL;
-
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
-
-return LORA_OK;
-}
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_write_register                                                    *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Write internal modem register                                          *
-*                                                                              *
-*******************************************************************************/
-static LORA_STATUS lora_write_register
+static LORA_STATUS write_register
     (
     LORA_REGISTER_ADDR lora_register,
     uint8_t data
-    )
-{
-LORA_STATUS status;
+    );
 
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
-
-status = LORA_SPI_Transmit_Data( (lora_register | 0x80), data );
-
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
-
-if ( status == LORA_OK )
-    return LORA_OK;
-else return LORA_FAIL;
-}
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_write_register_buffer                                             *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Write internal modem register with data buffer                         *
-*                                                                              *
-*******************************************************************************/
-static LORA_STATUS lora_write_register_buffer
+static LORA_STATUS write_register_buffer
     (
     LORA_REGISTER_ADDR lora_register,
     uint8_t* data,
     uint8_t buffer_len
-    )
-{
-HAL_StatusTypeDef status;
+    );
 
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+static LORA_STATUS get_device_id
+    (
+    uint8_t* register_value
+    );
 
-// SPI write regester we are writing
-uint8_t dest_reg = (lora_register | 0x80);
-status = HAL_SPI_Transmit( &(LORA_SPI), &dest_reg, 1, LORA_TIMEOUT);
-if ( status != HAL_OK )
-    return LORA_FAIL;
+/* Procedures ----------------------------------------------------------------*/
 
-// Write desire buffer
-status = HAL_SPI_Transmit( &(LORA_SPI), data, buffer_len, LORA_TIMEOUT);
-if ( status != HAL_OK )
-    return LORA_FAIL;
-
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
-
-
-return LORA_OK;
-}
-
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_is_lora_initialized                                               *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Determine initialization state of LoRa modem.                          *
-*                                                                              *
-*******************************************************************************/
+/**
+ * @brief Determine the initialization state of the LoRa modem.
+ * 
+ * @retval true LoRa is initialized.
+ * @retval false LoRa is uninitialized.
+ */
 bool lora_is_lora_initialized
     (
     void
@@ -284,92 +122,31 @@ return is_lora_configured;
 } /* lora_is_lora_initialized */
 
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_cmd_execute                                                       *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Execute a LoRa terminal command.                                       *
-*                                                                              *
-*******************************************************************************/
-LORA_STATUS lora_cmd_execute
-    (
-    uint8_t subcommand_code,
-    LORA_PRESET* lora_preset_buf
-    )
-{
-switch (subcommand_code)
-    {
-    /*-------------------------------------------------------------
-     Upload Preset (to FC)
-    -------------------------------------------------------------*/
-    case LORA_PRESET_UPLOAD:
-        {
-        /* Recieve preset subcommand over USB */
-        uint8_t data_receive_buffer[sizeof( LORA_PRESET )];
-        if (usb_receive( data_receive_buffer,
-                                sizeof( LORA_PRESET ),
-                                10 * HAL_DEFAULT_TIMEOUT ) == USB_OK)
-            {
-            /* Copy received data into preset data */
-            memcpy(lora_preset_buf, data_receive_buffer, sizeof( LORA_PRESET ) );
-            return LORA_OK;
-            }
-        else
-            {
-            /* lora presets remain untouched if usb receive fails */
-            return LORA_FAIL;
-            }
-        }
-    /*-------------------------------------------------------------
-     Download Preset (from FC)
-    -------------------------------------------------------------*/
-    case LORA_PRESET_DOWNLOAD:
-        {
-        /* tx straight from buffer (usb transmit does not modify the buffer) */
-        if( usb_transmit( lora_preset_buf, sizeof( LORA_PRESET ), 10 * HAL_DEFAULT_TIMEOUT ) == USB_OK )
-            {
-            return LORA_OK;
-            }
-        else
-            {
-            return LORA_FAIL;
-            }
-        }
-    /*-------------------------------------------------------------
-     Unrecognized command code
-    -------------------------------------------------------------*/
-    default:
-        {
-        return LORA_FAIL;
-        }
-    }
+/**
+ * @brief Configure and initialize the LoRa modem.
+ * 
+ * @param preset A pointer to the LoRa preset struct.
 
-} /* lora_cmd_execute */
-
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_configure                                                         *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Configure and re-initialize the lora modem.                            *
-*                                                                              *
-*******************************************************************************/
+ * @return LORA_STATUS The status of the LoRa modem.
+ * @retval LORA_OK The modem initialized properly.
+ * @retval LORA_USING_DEFAULTS The modem initialized
+ * properly, but is using default values instead of the
+ * preset parameter.
+ */
 LORA_STATUS lora_configure
     (
     LORA_PRESET* preset
     )
 {
+/* Local variables */
 LORA_CONFIG lora_config;
 LORA_STATUS lora_status = LORA_OK;
 memset( &lora_config, 0, sizeof( lora_config ) );
 
-/* Set app-dependent (non-configurable) parameters. */
-// ETS TEMP: We may elect to change these later, but this
-// is what we're using for now.
+/** Set app-dependent (non-configurable) parameters. 
+  * Currently, the driver doesn't support changing
+  * these values.
+  */
 lora_config.lora_header_mode = LORA_EXPLICIT_HEADER;
 lora_config.lora_mode = LORA_STANDBY_MODE;
 
@@ -430,211 +207,70 @@ else
 
 } /* lora_configure */
 
-// Get the device chip ID
-static LORA_STATUS lora_get_device_id
-    (
-    uint8_t* buffer_ptr
-    )
-{
-LORA_STATUS status;
 
-status = lora_read_register( LORA_REG_ID_VERSION, buffer_ptr );
-
-if ( status == LORA_OK )
-    return LORA_OK;
-else return LORA_FAIL;
-}
-
-
-/*------------------------------------------------------------------------------
-    Procedures
-------------------------------------------------------------------------------*/
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_read_register_IT                                                  *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Read internal modem register.                                          *
-*                                                                              *
-* NOTE:                                                                        *
-*       A completion callback (HAL_SPI_TxRxCpltCallback) for this operation    *
-*       MUST be registered for the LoRa SPI handle. The completion callback    *
-*       must pull NSS high like so:                                            *
-*                                                                              *
-*       HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );   *
-*                                                                              *
-*******************************************************************************/
-LORA_STATUS lora_read_register_IT
-    (
-    uint8_t lora_register,
-    uint8_t* pRegData /* o: 2 byte array; first byte will be empty, second will have the data */
-    )
-{
-HAL_StatusTypeDef hal_status;
-static uint8_t read_reg[2];
-read_reg[0] = lora_register & 0x7F;
-read_reg[1] = 0x00;
-
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
-hal_status = HAL_SPI_TransmitReceive_IT( &(LORA_SPI), read_reg, pRegData, 2 );
-
-/* NSS high is in the callback */
-
-if ( hal_status == HAL_OK )
-    {
-    return LORA_OK;
-    }
-else
-    {
-    return LORA_FAIL;
-    }
-
-} /* lora_read_register_IT */
-
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_write_register_IT                                                 *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Write to modem (register write).                                       *
-*                                                                              *
-* NOTE:                                                                        *
-*       A completion callback (HAL_SPI_TxCpltCallback) for this operation      *
-*       MUST be registered for the LoRa SPI handle. The completion callback    *
-*       must pull NSS high like so:                                            *
-*                                                                              *
-*       HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );   *
-*                                                                              *
-*******************************************************************************/
-LORA_STATUS lora_write_register_IT
-    (
-    uint8_t lora_register,
-    uint8_t data
-    )
-{
-static uint8_t write_reg[2]; /* statically scoped so it doesn't go out of scope during tx */
-write_reg[0] = (lora_register | 0x80);
-write_reg[1] = data;
-
-return lora_write_IT(write_reg, 2);
-
-} /* lora_write_register_IT */
-
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_write_IT                                                          *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Write to modem (burst write, also used for register write).            *
-*                                                                              *
-* NOTE:                                                                        *
-*       A completion callback (HAL_SPI_TxCpltCallback) for this operation      *
-*       MUST be registered for the LoRa SPI handle. The completion callback    *
-*       must pull NSS high like so:                                            *
-*                                                                              *
-*       HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );   *
-*                                                                              *
-*******************************************************************************/
-LORA_STATUS lora_write_IT
-    (
-    uint8_t* data,
-    size_t   len
-    )
-{
-HAL_StatusTypeDef hal_status;
-
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
-hal_status = HAL_SPI_Transmit_IT( &(LORA_SPI), data, len );
-
-/* NSS high is in the callback */
-
-if ( hal_status == HAL_OK )
-    {
-    return LORA_OK;
-    }
-else
-    {
-    return LORA_FAIL;
-    }
-
-} /* lora_write_IT */
-
-
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_set_chip_mode                                                     *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Set operation mode of LoRa modem                                       *
-*                                                                              *
-*******************************************************************************/
+/**
+ * @brief Set the operation mode for the modem.
+ * 
+ * @param chip_mode The operation mode to switch to.
+ * @return LORA_STATUS The status of the modem.
+ */
 LORA_STATUS lora_set_chip_mode
     (
     LORA_CHIPMODE chip_mode
     )
 {
-// Get initial value of the operation mode register
+/* Get initial value of the opmode register */
 uint8_t operation_mode_register;
-LORA_STATUS read_status = lora_read_register( LORA_REG_OPERATION_MODE, &operation_mode_register );
+LORA_STATUS read_status = read_register( LORA_REG_OPERATION_MODE, &operation_mode_register );
 
-if (read_status != LORA_OK)
-{
+if ( read_status != LORA_OK )
+    {
     return LORA_FAIL;
-}
+    }
 
-// // Fail if not in LORA Mode
-// if ( !( operation_mode_register & (1<<7) ) ){
-//     return LORA_FAIL;
-// }
-
-// Change the value of the chip register to set it to the suggested chip mode
+/* Change the register's operation mode */
 uint8_t new_opmode_register = (operation_mode_register & ~(0x7));
 new_opmode_register = (new_opmode_register | chip_mode);
 
-// Write new byte
-LORA_STATUS write_status = lora_write_register( LORA_REG_OPERATION_MODE, new_opmode_register );
+/* Write back */
+LORA_STATUS write_status = write_register( LORA_REG_OPERATION_MODE, new_opmode_register );
 
-if ( write_status + read_status == 0 ){
+if ( write_status + read_status == 0 )
+    {
     return LORA_OK;
-} else {
-    return LORA_FAIL;
-}
-}
+    }
+    
+return LORA_FAIL;
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_init                                                              *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Initialize LoRa modem                                                  *
-*                                                                              *
-*******************************************************************************/
+} /* lora_set_chip_mode */
+
+
+/**
+ * @brief Initialize the lora modem
+ * 
+ * @param lora_config_ptr The configuration settings to initialize with
+ * @return The status of the modem
+ */
 LORA_STATUS lora_init
     (
     LORA_CONFIG *lora_config_ptr
     )
 {
-// TODO add check for accurate chip ID (more than zero)
+/* Check device ID */
 uint8_t device_id = 0;
-lora_get_device_id( &device_id );
+get_device_id( &device_id );
 
-if( device_id != 0x12 ) {
+if( device_id != 0x12 ) 
+    {
     return LORA_FAIL;
-}
+    }
 
-// Check legality of frequency settings
-// We do this first so that nothing gets set if we're on an illegal frequency.
+/** Check legality of frequency settings
+  * We do this first so that nothing gets set if we're on an illegal frequency.
+  */
 
-// Get a version of our bandwidth for legality calculations
-uint32_t bandwidth; // Calculations down in hz due to decimal bandwidths
+/* Get a version of our bandwidth for legality calculations */
+uint32_t bandwidth; /* Calculations down in hz due to decimal bandwidths */
 switch( lora_config_ptr->lora_bandwidth ) {
     case LORA_BANDWIDTH_7_8_KHZ:
         bandwidth = 7800;
@@ -667,43 +303,42 @@ switch( lora_config_ptr->lora_bandwidth ) {
         bandwidth = 500000;
         break;
     default:
-        // Just in case, even though this is reading an enum
         return LORA_FAIL;
 }
 
-// Check legal compliance of frequency:
-if( !( lora_config_ptr->lora_frequency * 1000 + ( bandwidth / 2 ) <= ISM_MAX_FREQ * 1000 &&
-    lora_config_ptr->lora_frequency * 1000 - ( bandwidth / 2 ) >= ISM_MIN_FREQ * 1000 )
-) {
+/* Check legal compliance of frequency */
+if ( !( lora_config_ptr->lora_frequency * 1000 + ( bandwidth / 2 ) <= ISM_MAX_FREQ * 1000
+     && lora_config_ptr->lora_frequency * 1000 - ( bandwidth / 2 ) >= ISM_MIN_FREQ * 1000 ) ) 
+    {
     return LORA_FAIL;
-}
+    }
 
 LORA_STATUS set_sleep_status = lora_set_chip_mode( LORA_SLEEP_MODE ); // Switch to sleep mode to enable LoRa bit (datasheeet page 102)
 // Get initial value of the operation mode register
 uint8_t operation_mode_register;
-LORA_STATUS read_status1 = lora_read_register( LORA_REG_OPERATION_MODE, &operation_mode_register );
+LORA_STATUS read_status1 = read_register( LORA_REG_OPERATION_MODE, &operation_mode_register );
 
 uint8_t new_opmode_register;
 new_opmode_register = ( operation_mode_register | 0b10000000 ); // Toggle the LoRa bit
 
 // Write new byte
-LORA_STATUS write_status1 = lora_write_register( LORA_REG_OPERATION_MODE, new_opmode_register );
+LORA_STATUS write_status1 = write_register( LORA_REG_OPERATION_MODE, new_opmode_register );
 
 // Get initial value of config register 2
 uint8_t modem_config2_register;
-LORA_STATUS read_status2 = lora_read_register( LORA_REG_RX_HEADER_INFO, &modem_config2_register );
+LORA_STATUS read_status2 = read_register( LORA_REG_RX_HEADER_INFO, &modem_config2_register );
 
 uint8_t new_config2_register = modem_config2_register & 0x0F; // Erase spread factor bits
 new_config2_register = ( new_config2_register | ( lora_config_ptr->lora_spread << 4 ) ); // Set the spread factor
-LORA_STATUS write_status2 = lora_write_register( LORA_REG_RX_HEADER_INFO, new_config2_register ); // Write new spread factor
+LORA_STATUS write_status2 = write_register( LORA_REG_RX_HEADER_INFO, new_config2_register ); // Write new spread factor
 
 // Get initial value of config register 1
 uint8_t modem_config1_register;
-LORA_STATUS read_status3 = lora_read_register( LORA_REG_NUM_RX_BYTES, &modem_config1_register );
+LORA_STATUS read_status3 = read_register( LORA_REG_NUM_RX_BYTES, &modem_config1_register );
 uint8_t new_config1_register = ( (lora_config_ptr->lora_bandwidth << 4) | (lora_config_ptr->lora_ecr << 1) | lora_config_ptr->lora_header_mode ); //TODO: Check datasheet for that last bit
 
 // Write new config1 register
-LORA_STATUS write_status3 = lora_write_register( LORA_REG_NUM_RX_BYTES, new_config1_register );
+LORA_STATUS write_status3 = write_register( LORA_REG_NUM_RX_BYTES, new_config1_register );
 
 // Determine register values for the frequency registers
 uint32_t freq_mhz = lora_config_ptr->lora_frequency / 1000; // The megahertz component of our frequency.
@@ -717,9 +352,9 @@ uint8_t lora_freq_reg2 = ( frf_reg << 16 ) >> 24;
 uint8_t lora_freq_reg3 = ( frf_reg << 24 ) >> 24;
 
 // Write the frequency registers
-LORA_STATUS write_status4 = lora_write_register( LORA_REG_FREQ_MSB, lora_freq_reg1 );
-LORA_STATUS write_status5 = lora_write_register( LORA_REG_FREQ_MSD, lora_freq_reg2 );
-LORA_STATUS write_status6 = lora_write_register( LORA_REG_FREQ_LSB, lora_freq_reg3 );
+LORA_STATUS write_status4 = write_register( LORA_REG_FREQ_MSB, lora_freq_reg1 );
+LORA_STATUS write_status5 = write_register( LORA_REG_FREQ_MSD, lora_freq_reg2 );
+LORA_STATUS write_status6 = write_register( LORA_REG_FREQ_LSB, lora_freq_reg3 );
 
 // Determine register values for the PA Config Register
 uint8_t new_pa_select_reg;
@@ -734,26 +369,22 @@ else
     }
 
 // Write the PA Config Register
-LORA_STATUS write_status7 = lora_write_register( LORA_REG_PA_CONFIG, new_pa_select_reg );
+LORA_STATUS write_status7 = write_register( LORA_REG_PA_CONFIG, new_pa_select_reg );
 
 LORA_STATUS standby_status = lora_set_chip_mode( lora_config_ptr->lora_mode ); // Switch it into standby mode, which is what's convenient.
 
-if( set_sleep_status + read_status1 + read_status2 + read_status3 + write_status1 + write_status2 + write_status3 + write_status4 + write_status5 + write_status6 + write_status7 + standby_status == 0 ) {
-    return LORA_OK;
-} else {
+if( set_sleep_status + read_status1 + read_status2 + read_status3 + write_status1 + write_status2 + write_status3 + write_status4 + write_status5 + write_status6 + write_status7 + standby_status != 0 ) 
+    {
     return LORA_FAIL;
-}
-}
+    }
+return LORA_OK;
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_reset                                                             *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Reset LoRa modem (Initialization function needs to be called again)    *
-*                                                                              *
-*******************************************************************************/
+} /* lora_init */
+
+
+/**
+ * @brief Reset LoRa modem
+ */
 void lora_reset
     (
     void
@@ -763,17 +394,17 @@ HAL_GPIO_WritePin(LORA_RST_GPIO_PORT, LORA_RST_PIN, GPIO_PIN_RESET); // Pull Low
 HAL_Delay(10);  // Hold reset low for 10 ms
 HAL_GPIO_WritePin(LORA_RST_GPIO_PORT, LORA_RST_PIN, GPIO_PIN_SET);   // Pull High
 HAL_Delay(10);  // Wait for SX1278 to stabilize
-}
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_transmit                                                          *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       transmit a buffer through lora fifo                                    *
-*                                                                              *
-*******************************************************************************/
+} /* lora_reset */
+
+
+/**
+ * @brief Transmit a packet (in blocking mode)
+ * 
+ * @param[in] buffer_ptr A pointer to the data to transmit
+ * @param buffer_len The size of the buffer being transmitted
+ * @return The status of the modem
+ */
 LORA_STATUS lora_transmit
     (
     uint8_t* buffer_ptr,
@@ -785,13 +416,13 @@ LORA_STATUS standby_status = lora_set_chip_mode(LORA_STANDBY_MODE);
 
 // Write data to LoRA FIFO
 uint8_t fifo_ptr_addr;
-LORA_STATUS tx_base_status = lora_read_register(LORA_REG_FIFO_TX_BASE_ADDR, &fifo_ptr_addr);  // Access LoRA FIFO data buffer pointer
+LORA_STATUS tx_base_status = read_register(LORA_REG_FIFO_TX_BASE_ADDR, &fifo_ptr_addr);  // Access LoRA FIFO data buffer pointer
 if (tx_base_status + standby_status != LORA_OK){
     // Error handler
     // led_set_color(// led_RED);
     return LORA_FAIL;
 }
-LORA_STATUS ptr_status = lora_write_register(LORA_REG_FIFO_SPI_POINTER, fifo_ptr_addr); // Set fifo data pointer to TX base address
+LORA_STATUS ptr_status = write_register(LORA_REG_FIFO_SPI_POINTER, fifo_ptr_addr); // Set fifo data pointer to TX base address
 if (ptr_status != LORA_OK){
     // Error handler
     // led_set_color(// led_RED);
@@ -799,47 +430,46 @@ if (ptr_status != LORA_OK){
 }
 
 // Write buffer length to fifo_rw
-LORA_STATUS fifo_status = lora_write_register(LORA_REG_SIGNAL_TO_NOISE, buffer_len);
+LORA_STATUS fifo_status = write_register(LORA_REG_SIGNAL_TO_NOISE, buffer_len);
 
 // Send byte to byte to the fifo buffer
 LORA_STATUS sendbyte_status = LORA_OK;
 
-/*
-// Old transmit buffer write code
-// TODO don't remove until burst transmit is working
-for (int i = 0; i<buffer_len; i++){
-    sendbyte_status = lora_write_register(LORA_REG_FIFO_RW, buffer_ptr[i]);
-}
-*/
-
-sendbyte_status = lora_write_register_buffer( LORA_REG_FIFO_RW, buffer_ptr, buffer_len );
+sendbyte_status = write_register_buffer( LORA_REG_FIFO_RW, buffer_ptr, buffer_len );
 
 LORA_STATUS tmode_status = lora_set_chip_mode(LORA_TRANSMIT_MODE);
 
 uint8_t lora_op;
-LORA_STATUS regop_status;
-while (1){ // TODO Add a timeout here
-    regop_status = lora_read_register(LORA_REG_OPERATION_MODE, &lora_op);
-    if ((lora_op & 0b111) == LORA_STANDBY_MODE){
+LORA_STATUS regop_status = LORA_OK;
+uint32_t start_time = HAL_GetTick();
+while ( ( start_time + ( LORA_BLOCKING_TX_TIMEOUT * buffer_len ) ) > HAL_GetTick() )
+    {
+    regop_status = read_register(LORA_REG_OPERATION_MODE, &lora_op);
+    if ( ( ( lora_op & 0b111 ) == LORA_STANDBY_MODE )
+      || ( regop_status != LORA_OK ) ) 
+        {
         break;
+        }
     }
-}
-if( fifo_status + tmode_status + regop_status + sendbyte_status == 0 ) {
-        return LORA_OK;
-} else {
-    return LORA_FAIL;
-}
-}
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_receive_ready                                                     *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       Check if new packt has been received                                   *
-*                                                                              *
-*******************************************************************************/
+if( fifo_status + tmode_status + regop_status + sendbyte_status == 0
+ && ( start_time + ( LORA_BLOCKING_TX_TIMEOUT * buffer_len ) ) > HAL_GetTick() )
+    {
+    return LORA_OK;
+    }
+
+return LORA_FAIL;
+
+} /* lora_transmit */
+
+
+/**
+ * @brief Check if a packet has been received
+ * 
+ * @retval LORA_READY if a packet is ready
+ * @retval LORA_WAITING if waiting for the packet
+ * @retval LORA_FAIL if the receive failed
+ */
 LORA_STATUS lora_receive_ready
     (
     void
@@ -847,16 +477,16 @@ LORA_STATUS lora_receive_ready
 {
 uint8_t mode;
 
-LORA_STATUS mode_check = lora_read_register( LORA_REG_OPERATION_MODE, &mode );
+LORA_STATUS mode_check = read_register( LORA_REG_OPERATION_MODE, &mode );
 mode = mode & 0x07;
 
 if( mode_check == LORA_OK && mode == LORA_RX_CONTINUOUS_MODE ) {
     uint8_t irq_flag;
 
-    LORA_STATUS irq_check = lora_read_register(LORA_REG_IRQ_FLAGS, &irq_flag);
+    LORA_STATUS irq_check = read_register(LORA_REG_IRQ_FLAGS, &irq_flag);
 
     if( irq_check == LORA_OK ) {
-        lora_write_register( LORA_REG_IRQ_FLAGS, irq_flag );
+        write_register( LORA_REG_IRQ_FLAGS, irq_flag );
         uint8_t rx_done = ( irq_flag & 0x40 ) == 0x40;
 
         if( rx_done ) {
@@ -874,15 +504,15 @@ if( mode_check == LORA_OK && mode == LORA_RX_CONTINUOUS_MODE ) {
 }
 }
 
-/*******************************************************************************
-*                                                                              *
-* PROCEDURE:                                                                   *
-* 		lora_receive                                                           *
-*                                                                              *
-* DESCRIPTION:                                                                 *
-*       lora_receive: receive a buffer from lora fifo with continuous mode     *
-*                                                                              *
-*******************************************************************************/
+
+/**
+ * @brief Receive a packet over LoRa
+ * 
+ * @param[in] buffer_ptr The buffer to receive into
+ * @param buffer_len The length of the receive buffer
+ * @param[out] num_bytes_received The actual number of bytes received
+ * @return LORA_STATUS 
+ */
 LORA_STATUS lora_receive
     (
     uint8_t* buffer_ptr,
@@ -894,7 +524,7 @@ if ( lora_rx_done == LORA_READY ){
     // Write IRQ flags
     uint8_t irq_flag;
 
-    LORA_STATUS irq_status2 = lora_read_register(LORA_REG_IRQ_FLAGS, &irq_flag);
+    LORA_STATUS irq_status2 = read_register(LORA_REG_IRQ_FLAGS, &irq_flag);
     if( irq_status2 != LORA_OK )
         {
         return LORA_FAIL;
@@ -904,7 +534,7 @@ if ( lora_rx_done == LORA_READY ){
     if (!crc_err){ // TODO make a fail happen for a CRC error
         // Read received number of bytes
         uint8_t num_bytes;
-        LORA_STATUS fifo2_status = lora_read_register(LORA_REG_FIFO_RX_NUM_BYTES, &num_bytes);
+        LORA_STATUS fifo2_status = read_register(LORA_REG_FIFO_RX_NUM_BYTES, &num_bytes);
 
         // In case SPI operation fials
         if( fifo2_status != LORA_OK ) {
@@ -918,12 +548,12 @@ if ( lora_rx_done == LORA_READY ){
 
         // Set lora fifo pointer to the RX base current address
         uint8_t fifo_ptr_addr;
-        LORA_STATUS base_adr_status = lora_read_register(LORA_REG_FIFO_RX_BASE_CUR_ADDR, &fifo_ptr_addr);  // Access LoRA FIFO data buffer pointer
+        LORA_STATUS base_adr_status = read_register(LORA_REG_FIFO_RX_BASE_CUR_ADDR, &fifo_ptr_addr);  // Access LoRA FIFO data buffer pointer
         if (base_adr_status != LORA_OK){
             // Error handler
             return LORA_FAIL;
         }
-        LORA_STATUS ptr2_status = lora_write_register(LORA_REG_FIFO_SPI_POINTER, fifo_ptr_addr); // Set fifo data pointer to TX base address
+        LORA_STATUS ptr2_status = write_register(LORA_REG_FIFO_SPI_POINTER, fifo_ptr_addr); // Set fifo data pointer to TX base address
         if (ptr2_status != LORA_OK){
             // Error handler
             return LORA_FAIL;
@@ -936,11 +566,11 @@ if ( lora_rx_done == LORA_READY ){
         // TODO don't remove until burst read is confirmed working
         for (int i = 0; i < num_bytes; i++){
             uint8_t packet;
-            pld_xtr_status = lora_read_register(LORA_REG_FIFO_RW, &packet);  // Access LoRA FIFO data buffer pointer
+            pld_xtr_status = read_register(LORA_REG_FIFO_RW, &packet);  // Access LoRA FIFO data buffer pointer
             buffer_ptr[i] = packet;
         } */
 
-        lora_read_register_buffer( LORA_REG_FIFO_RW, buffer_ptr, num_bytes);
+        read_register_buffer( LORA_REG_FIFO_RW, buffer_ptr, num_bytes);
 
         *num_bytes_received = num_bytes;
         if (pld_xtr_status == LORA_OK ) {
@@ -956,6 +586,367 @@ if ( lora_rx_done == LORA_READY ){
 return LORA_FAIL;
 }
 
-/*------------------------------------------------------------------------------
-    Internal procedures
-------------------------------------------------------------------------------*/
+/* Private Procedures --------------------------------------------------------*/
+
+/**
+ * @brief Read a register in non-blocking mode.
+ * 
+ * @note A completion callback (HAL_SPI_TxRxCpltCallback) for this operation
+ * MUST be registered for the LoRa SPI handle. The completion callback must
+ * pull NSS high via 
+ * HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+ *
+ * @param lora_register The register to read
+ * @param[out] pRegData A two-byte buffer that must stay in scope until the
+ * completion callback is called. The second byte will have the requested
+ * data.
+ *
+ * @return The status of the LoRa modem.
+ */
+LORA_STATUS _lora_read_register_IT
+    (
+    uint8_t lora_register,
+    uint8_t* pRegData /* o: 2 byte array; first byte will be empty, second will have the data */
+    )
+{
+HAL_StatusTypeDef hal_status;
+static uint8_t read_reg[2];
+read_reg[0] = lora_register & 0x7F;
+read_reg[1] = 0x00;
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+hal_status = HAL_SPI_TransmitReceive_IT( &(LORA_SPI), read_reg, pRegData, 2 );
+
+/* NSS high is in the callback */
+
+if ( hal_status == HAL_OK )
+    {
+    return LORA_OK;
+    }
+else
+    {
+    return LORA_FAIL;
+    }
+
+} /* _lora_read_register_IT */
+
+
+/**
+ * @brief Write a register in non-blocking mode.
+ * 
+ * @note A completion callback (HAL_SPI_TxCpltCallback) for this operation
+ * MUST be registered for the LoRa SPI handle. The completion callback must
+ * pull NSS high via 
+ * HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+ *
+ * @param lora_register The register to write
+ * @param data The value to write to the register
+ *
+ * @return The status of the LoRa modem.
+ */
+LORA_STATUS _lora_write_register_IT
+    (
+    uint8_t lora_register,
+    uint8_t data
+    )
+{
+static uint8_t write_reg[2]; /* statically scoped so it doesn't go out of scope during tx */
+write_reg[0] = (lora_register | 0x80);
+write_reg[1] = data;
+
+return _lora_write_IT(write_reg, 2);
+
+} /* _lora_write_register_IT */
+
+
+/**
+ * @brief Write to the LoRa modem in nonblocking mode.
+ * 
+ * @note A completion callback (HAL_SPI_TxCpltCallback) for this operation
+ * MUST be registered for the LoRa SPI handle. The completion callback must
+ * pull NSS high via 
+ * HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+ *
+ * @param[in] data The buffer to write to the register. It MUST stay in
+ * scope until the write completes.
+ *
+ * @return The status of the LoRa modem.
+ */
+LORA_STATUS _lora_write_IT
+    (
+    uint8_t* data,
+    size_t   len
+    )
+{
+HAL_StatusTypeDef hal_status;
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+hal_status = HAL_SPI_Transmit_IT( &(LORA_SPI), data, len );
+
+/* NSS high is in the callback */
+
+if ( hal_status == HAL_OK )
+    {
+    return LORA_OK;
+    }
+else
+    {
+    return LORA_FAIL;
+    }
+
+} /* _lora_write_IT */
+
+/* Internal Procedures -------------------------------------------------------*/
+
+/**
+ * @brief Receive a byte over SPI
+ * 
+ * @param[out] read_byte The byte to read
+ * @return LORA_STATUS The status of the LoRa modem
+ */
+static LORA_STATUS spi_receive
+    (
+    uint8_t* read_byte
+    )
+{
+/* Local Variables */
+HAL_StatusTypeDef status;
+
+/* Takes pointer to the read buffer. and puts output there */
+status = HAL_SPI_Receive( &(LORA_SPI), read_byte, 1, LORA_TIMEOUT );
+
+if ( status == HAL_OK )
+    {
+    return LORA_OK;
+    }
+
+return LORA_FAIL;
+
+} /* spi_receive */
+
+
+/**
+ * @brief Transmit a single byte over SPI.
+ * 
+ * @param byte The byte to transmit.
+ * @return LORA_STATUS The status of the modem.
+ */
+static LORA_STATUS spi_transmit_byte
+    (
+    uint8_t byte
+    )
+{
+/* Local Variables*/
+HAL_StatusTypeDef status;
+
+/* Takes register and data to write (1 byte) and writes that register. */
+status = HAL_SPI_Transmit( &(LORA_SPI), &byte, 1, LORA_TIMEOUT);
+
+if ( status == HAL_OK )
+    {
+    return LORA_OK;
+    }
+
+return LORA_FAIL;
+
+} /* spi_transmit_byte */
+
+
+/**
+ * @brief Write two bytes over SPI.
+ * 
+ * @param reg The register to write to (with 0x80 already OR'd in)
+ * @param data The data to write.
+ * @return LORA_STATUS The status of the modem.
+ */
+static LORA_STATUS spi_transmit_data
+    (
+    LORA_REGISTER_ADDR reg,
+    uint8_t data
+    )
+{
+/* Local Variables */
+HAL_StatusTypeDef status;
+
+/* Takes register and data to write and writes that register. */
+uint8_t transmitBuffer[2] = { reg, data };
+status = HAL_SPI_Transmit( &(LORA_SPI), &transmitBuffer[0], 2, LORA_TIMEOUT);
+
+if ( status == HAL_OK )
+    {
+    return LORA_OK;
+    }
+
+return LORA_FAIL;
+
+} /* spi_transmit_data */
+
+
+/**
+ * @brief Read a LoRa register
+ * 
+ * @param lora_register The register to read from
+ * @param[out] data The contents of that register
+ * @return LORA_STATUS The status of the LoRa modem
+ */
+static LORA_STATUS read_register
+    (
+    LORA_REGISTER_ADDR lora_register,
+    uint8_t* data
+    )
+{
+/* Local variables */
+LORA_STATUS transmit_status, receive_status;
+
+/* Perform the read */
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+
+transmit_status = spi_transmit_byte( (lora_register & 0x7F) );
+receive_status = spi_receive( data );
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+/* Verify the read was performed successfully */
+if ( ( transmit_status | receive_status ) == LORA_OK )
+    {
+    return LORA_OK;
+    }
+    
+return LORA_FAIL;
+
+} /* read_register */
+
+
+/**
+ * @brief Read a buffer from an internal LoRa register.
+ * 
+ * @param lora_register 
+ * @param pRegData 
+ * @param buffer_len 
+ * @return LORA_STATUS 
+ */
+static LORA_STATUS read_register_buffer
+    (
+    LORA_REGISTER_ADDR lora_register,
+    uint8_t* pRegData,
+    uint8_t buffer_len
+    )
+{
+/* Local variables */
+LORA_STATUS status;
+HAL_StatusTypeDef hal_status;
+
+/* Perform both steps in sequence so we deassert NSS no matter what */
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+
+status = spi_transmit_byte( (lora_register & 0x7F) );
+hal_status = HAL_SPI_Receive( &(LORA_SPI), pRegData, buffer_len, LORA_TIMEOUT );
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+if( hal_status != HAL_OK || status != LORA_OK )
+    {
+    return LORA_FAIL;
+    }
+
+return LORA_OK;
+
+} /* read_register_buffer */
+
+
+/**
+ * @brief Write a LoRa modem register.
+ * 
+ * @param lora_register The register to write to
+ * @param data The byte to write into the register
+ * @return LORA_STATUS The status of the LoRa modem.
+ */
+static LORA_STATUS write_register
+    (
+    LORA_REGISTER_ADDR lora_register,
+    uint8_t data
+    )
+{
+LORA_STATUS status;
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+
+status = spi_transmit_data( (lora_register | 0x80), data );
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+if ( status == LORA_OK )
+    {
+    return LORA_OK;
+    }
+
+return LORA_FAIL;
+
+} /* write_register */
+
+
+/**
+ * @brief Write a buffer to a register.
+ * 
+ * @param lora_register The register to write to.
+ * @param data A buffer to write
+ * @param buffer_len The length of the buffer
+ * @return LORA_STATUS The status of the LoRa modem.
+ */
+static LORA_STATUS write_register_buffer
+    (
+    LORA_REGISTER_ADDR lora_register,
+    uint8_t* data,
+    uint8_t buffer_len
+    )
+{
+/* Local Variables */
+HAL_StatusTypeDef status = HAL_OK;
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+
+/* Apply the write bitmask before transmitting */
+uint8_t dest_reg = (lora_register | 0x80);
+status |= HAL_SPI_Transmit( &(LORA_SPI), &dest_reg, 1, LORA_TIMEOUT);
+
+/* Write buffer */
+status |= HAL_SPI_Transmit( &(LORA_SPI), data, buffer_len, LORA_TIMEOUT);
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+if ( status != HAL_OK )
+    {
+    return LORA_FAIL;
+    }
+
+return LORA_OK;
+
+} /* write_register_buffer */
+
+/**
+ * @brief Helper to retrieve the device ID during initialization.
+ * 
+ * @param[out] register_value Device ID 
+ * @return LORA_STATUS The status of the modem and this driver.
+ */
+static LORA_STATUS get_device_id
+    (
+    uint8_t* register_value
+    )
+{
+LORA_STATUS status;
+
+status = read_register( LORA_REG_ID_VERSION, register_value );
+
+if ( status == LORA_OK )
+    {
+    return LORA_OK;
+    }
+
+return LORA_FAIL;
+
+} /* get_device_id */
+
+/**
+ * End of file
+ */

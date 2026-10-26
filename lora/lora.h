@@ -1,24 +1,22 @@
-/*******************************************************************************
-*
-* FILE:
-* 		LoRa.h
-*
-* DESCRIPTION:
-* 		Contains register definitions and functions for controlling the LoRa
-*       radio module.
-*
-* COPYRIGHT:
-*       Copyright (c) 2025 Sun Devil Rocketry.
-*       All rights reserved.
-*
-*       This software is licensed under terms that can be found in the LICENSE
-*       file in the root directory of this software component.
-*       If no LICENSE file comes with this software, it is covered under the
-*       BSD-3-Clause.
-*
-*       https://opensource.org/license/bsd-3-clause
-*
-*******************************************************************************/
+/**
+  ******************************************************************************
+  * @file           : lora.h
+  * @brief          : Interfaces for wireless communication.
+  ******************************************************************************
+  * @copyright
+  *
+  * Copyright (c) 2026 Sun Devil Rocketry.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is covered under the   
+  * BSD-3-Clause.                                                          
+  *                                                                              
+  * https://opensource.org/license/bsd-3-clause
+  *
+  ******************************************************************************
+  */
 
 /* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef LORA_H
@@ -225,25 +223,6 @@ typedef enum LORA_FSM_EVENT {
  Function Prototypes
 ------------------------------------------------------------------------------*/
 
-/* Interrupt driven I/O (used by the telemetry FSM) */
-LORA_STATUS lora_read_register_IT
-    (
-    uint8_t lora_register,
-    uint8_t* pRegData
-    );
-
-LORA_STATUS lora_write_register_IT
-    (
-    uint8_t lora_register,
-    uint8_t data
-    );
-
-LORA_STATUS lora_write_IT
-    (
-    uint8_t* data,
-    size_t   len
-    );
-
 LORA_STATUS lora_init
     (
     LORA_CONFIG *lora_config_ptr
@@ -306,6 +285,28 @@ LORA_STATUS lora_fsm_set_mode
 void lora_fsm_update
     (
     LORA_FSM_EVENT update_cause
+    );
+
+/** Interrupt driven I/O (used by the telemetry FSM)
+  * These functions are scoped to the driver and should never
+  * be called directly
+  */
+LORA_STATUS _lora_read_register_IT
+    (
+    uint8_t lora_register,
+    uint8_t* pRegData
+    );
+
+LORA_STATUS _lora_write_register_IT
+    (
+    uint8_t lora_register,
+    uint8_t data
+    );
+
+LORA_STATUS _lora_write_IT
+    (
+    uint8_t* data,
+    size_t   len
     );
 
 #ifdef __cplusplus

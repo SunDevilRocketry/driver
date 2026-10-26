@@ -1,0 +1,175 @@
+################################################################ 
+#
+# gps.c unit tests (based on gcc)
+#
+################################################################
+
+
+################################################################
+# target
+################################################################
+TEST = test_lora
+TARGET = test_lora.out
+
+
+################################################################
+# build variables 
+################################################################
+
+# Debug build?
+DEBUG ?= 0
+# Optimization
+OPT   = -Og
+
+
+################################################################
+# paths 
+################################################################
+
+# build folder
+BUILD_DIR = build
+
+# base directory
+ROOT_DIR  = ../../../..
+
+# library directory
+LIB_DIR = $(ROOT_DIR)/lib
+
+INIT_DIR = $(ROOT_DIR)/init
+
+DRIVER_DIR = $(ROOT_DIR)/driver
+
+TEST_DIR = ../../
+
+
+################################################################
+# source 
+################################################################
+
+# C sources
+TEST_SOURCES =                                   				  \
+test_lora.c                       								  \
+mock/MOCK_hal.c
+
+# Tested Source Files
+COV_C_SOURCES =	
+
+# Sources #included by test_lora.c (not compiled separately, but counted in coverage)
+COV_INCLUDED_SOURCES =											  \
+$(ROOT_DIR)/driver/lora/lora_async.c							  \
+$(ROOT_DIR)/driver/lora/lora.c
+
+COV_FILTER_SOURCES = $(COV_C_SOURCES) $(COV_INCLUDED_SOURCES)
+
+# Framework
+FRAMEWORK_SOURCES =												  \
+$(TEST_DIR)/framework/src/test_assert.c          	  		  \
+$(TEST_DIR)/framework/src/test_runner.c
+
+C_SOURCES = $(TEST_SOURCES) $(COV_C_SOURCES) $(FRAMEWORK_SOURCES)
+
+################################################################
+# Compiler 
+################################################################
+CC = gcc
+
+
+################################################################
+# C flags 
+################################################################
+
+# C Includes
+C_INCLUDES =                                           \
+-I.                                                    \
+-Imock                                                 \
+-I$(ROOT_DIR)/driver/lora/								   \
+-I$(ROOT_DIR)/driver/imu/								   \
+-I$(ROOT_DIR)/driver/baro/								   \
+-I$(ROOT_DIR)/driver/gps/								   \
+-I$(ROOT_DIR)/driver/usb/								   \
+-I$(ROOT_DIR)/mod/commands/								   \
+-I$(ROOT_DIR)/mod/error_sdr/								   \
+-I$(ROOT_DIR)/mod/math_sdr/								   \
+-I$(ROOT_DIR)/mod/sensor/								   \
+-I$(ROOT_DIR)/mod/telemetry/								   \
+-I$(LIB_DIR)                                           \
+-I$(LIB_DIR)/Drivers/STM32H7xx_HAL_Driver/Inc          \
+-I$(LIB_DIR)/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy   \
+-I$(LIB_DIR)/Drivers/CMSIS/Device/ST/STM32H7xx/Include \
+-I$(LIB_DIR)/Drivers/CMSIS/Include                     \
+-I$(ROOT_DIR)/init/rev2/config/Inc				   \
+-I$(INIT_DIR)/config/Inc                               \
+-I$(TEST_DIR)/framework/src				   	   \
+-I$(TEST_DIR)/driver/gps/mock/					\
+-I$(TEST_DIR)/utilities
+
+# Preprocessor definitions
+C_DEFS =         \
+-DUSE_HAL_DRIVER \
+-DSTM32H750xx    \
+-DFLIGHT_COMPUTER \
+-DUNIT_TEST
+
+CFLAGS = $(C_INCLUDES) $(C_DEFS) $(OPT) -Wall -g
+
+# Disable some warnings
+CFLAGS += -Wno-pointer-to-int-cast
+CFLAGS += -Wno-int-to-pointer-cast
+CFLAGS += -Wno-unused-function
+CFLAGS += -Wno-unused-variable
+
+# Get coverage report
+CFLAGS += -ftest-coverage
+CFLAGS += -fprofile-arcs
+CFLAGS += -ffile-prefix-map=$(shell pwd)/=
+
+ifeq ($(DEBUG), 1)
+CFLAGS += -DDEBUG
+else
+CFLAGS += -DRELBLD
+endif
+
+################################################################
+# Build all
+################################################################
+all: clean $(BUILD_DIR)/$(TARGET)
+
+# Setup the path for c files
+OBJECTS = $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o)))
+vpath %.c $(sort $(dir $(C_SOURCES)))
+
+$(BUILD_DIR)/%.o: %.c $(BUILD_DIR)
+	$(CC) -c $(CFLAGS) $< -o $@
+
+$(BUILD_DIR)/$(TARGET): $(OBJECTS) 
+	$(CC) $(OBJECTS) -o $@ -lgcov
+
+$(BUILD_DIR):
+	mkdir $@		
+
+################################################################
+# Build test
+################################################################
+test:
+	@echo THIS TEST MUST BE EXECUTED IN A BASH TERMINAL. CMD/PS do not work.
+	-rm -fR $(BUILD_DIR)
+	$(MAKE) all
+	$(BUILD_DIR)/$(TARGET)
+	tail -n 7 "results.txt"
+	mkdir -p coverage
+	gcovr $(BUILD_DIR) \
+		$(foreach f,$(COV_FILTER_SOURCES),--filter $(abspath $(f))) \
+		--html-details coverage/coverage.html  \
+		--json coverage/coverage.json
+
+################################################################
+# clean up 
+################################################################
+
+clean:
+	-rm -fR $(BUILD_DIR)
+
+
+################################################################
+# EOF 
+################################################################

@@ -1,47 +1,60 @@
-/*******************************************************************************
-*
-* FILE:
-* 		lora_async.c
-*
-* DESCRIPTION:
-* 		Contains API functions for transmating //{POSTPONED} and receiving// 
-*       from the board's built-in LoRa module in non-blocking mode.
-*
-* COPYRIGHT:
-*       Copyright (c) 2025 Sun Devil Rocketry.
-*       All rights reserved.
-*
-*       This software is licensed under terms that can be found in the LICENSE
-*       file in the root directory of this software component.
-*       If no LICENSE file comes with this software, it is covered under the
-*       BSD-3-Clause.
-*
-*       https://opensource.org/license/bsd-3-clause
-*
-*******************************************************************************/
+/**
+  ******************************************************************************
+  * @file           : lora_async.c
+  * @brief          : Interfaces for wireless communication on high-performance
+                      hardware off the CPU.
+  ******************************************************************************
+  * @copyright
+  *
+  * Copyright (c) 2026 Sun Devil Rocketry.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is covered under the   
+  * BSD-3-Clause.                                                          
+  *                                                                              
+  * https://opensource.org/license/bsd-3-clause
+  *
+  ******************************************************************************
+  @verbatim
+  ==============================================================================
+                      ##### Integration Guide #####
+  ==============================================================================
+  [..]
+  ## Dependencies:
+  - An implementation of the telemetry_get_next_message() contract from
+    telemetry.h
+  - The rest of the LoRa driver
+  
+  ## Invariants (contract):
+  - The project must call lora_init() or lora_configure() before attempting
+    to use this library.
+  - The hardware must have an RFM95.
+  - This file's abstractions must not be broken as all assumptions rely on
+    the public interfaces being used for interaction.
+  - lora_fsm_update must be called periodically in the main application loop
+    with the argument LORA_FSM_EVENT_SYNCHRONOUS_UPDATE.
+  
+  ## Instructions:
+  - Call lora_fsm_set_mode to switch to TX{{/RX (postponed)}} mode.
+  - Call lora_fsm_update synchronously in your main application loop and
+    via the callbacks from the main lora.c file.
+  - Call lora_fsm_update with LORA_FSM_EVENT_CANCEL OR lora_fsm_set_mode with
+    LORA_ASYNC_OFF to cancel the transmission loop.
+  ******************************************************************************
+  @endverbatim
+  */
 
-
-/*------------------------------------------------------------------------------
- Standard Includes
-------------------------------------------------------------------------------*/
+/* Includes ------------------------------------------------------------------*/
 #include <string.h>
 
-/*------------------------------------------------------------------------------
- MCU Pins
-------------------------------------------------------------------------------*/
 #include "pindefs.h"
 
-/*------------------------------------------------------------------------------
- Project Includes
-------------------------------------------------------------------------------*/
 #include "lora.h"
 #include "telemetry.h"
-#include "usb.h"
-#include "main.h"
 
-/*------------------------------------------------------------------------------
- Global Variables
-------------------------------------------------------------------------------*/
+/* Globals -------------------------------------------------------------------*/
 static LORA_ASYNC_OP_MODE op_mode = LORA_ASYNC_OFF;
 static LORA_TX_FSM_STATE tx_fsm = LORA_TX_STATE_BLOCKING;
 
@@ -52,19 +65,20 @@ static uint8_t       register_contents[2] = {0x00, 0x00};
 static TELEMETRY_MESSAGE  payload;
 static uint8_t       burst_write_buf[TELEMETRY_MESSAGE_SIZE + 1];
 
-/*------------------------------------------------------------------------------
- Static Prototypes
-------------------------------------------------------------------------------*/
+/* Statics ------------------------------------------------------------------*/
 
 static void lora_tx_update
     (
     LORA_FSM_EVENT update_cause /* i: which kind of event triggered this update */
     );
 
-/*------------------------------------------------------------------------------
- Procedures
-------------------------------------------------------------------------------*/
+/* Procedures ---------------------------------------------------------------*/
 
+/**
+ * @brief Update asynchronous LoRa FSMs.
+ * 
+ * @param update_cause The cause of the update to the FSMs.
+ */
 void lora_fsm_update
     (
     LORA_FSM_EVENT update_cause
@@ -82,6 +96,12 @@ switch ( op_mode )
 } /* lora_fsm_update */
 
 
+/**
+ * @brief Set the LoRa FSM mode.
+ * 
+ * @param new_mode The new mode to set.
+ * @return LORA_STATUS The current status of LoRa async operation.
+ */
 LORA_STATUS lora_fsm_set_mode
     (
     LORA_ASYNC_OP_MODE new_mode
@@ -111,15 +131,11 @@ return lora_status;
 } /* lora_fsm_set_mode */
 
 
-/*********************************************************************************
-*                                                                                *
-* FUNCTION:                                                                      * 
-* 		lora_tx_update                                                           *
-*                                                                                *
-* DESCRIPTION:                                                                   * 
-* 		Update the lora async transmission FSM.                                  *
-*                                                                                *
-*********************************************************************************/
+/**
+ * @brief The LoRa transmission FSM
+ * 
+ * @param LORA_FSM_EVENT The cause of the update to the FSM.
+ */
 static void lora_tx_update
     (
     LORA_FSM_EVENT update_cause /* i: which kind of event triggered this update */
@@ -136,11 +152,6 @@ if( ( lora_status & ( LORA_FAIL | LORA_TRANSMIT_FAIL | LORA_TIMEOUT_FAIL ) )
     return;
     }
 
-// ETS TEMP: Test
-// telemetry_get_next_message();
-// lora_transmit( &payload, sizeof( TELEMETRY_MESSAGE ) );
-// return;
-
 /* update the current telemetry state */
 switch( tx_fsm )
     {
@@ -154,7 +165,7 @@ switch( tx_fsm )
             return;
             }
         tx_fsm = LORA_TX_STATE_STATUS_CHECK;
-        lora_status = lora_read_register_IT(LORA_REG_OPERATION_MODE, register_contents);
+        lora_status = _lora_read_register_IT(LORA_REG_OPERATION_MODE, register_contents);
         return;
         }
 
@@ -171,7 +182,7 @@ switch( tx_fsm )
             {
             tx_fsm = LORA_TX_STATE_BLOCKING; /* wait for next synchronous check */
             /* Preserve LoRa mode (bit 7) and other upper bits; only set mode. */
-            lora_status = lora_write_register_IT(
+            lora_status = _lora_write_register_IT(
                 LORA_REG_OPERATION_MODE,
                 (uint8_t)( ( register_contents[1] & (uint8_t) ~0x7 ) | (uint8_t) LORA_STANDBY_MODE )
                 );
@@ -180,7 +191,7 @@ switch( tx_fsm )
         else /* success: go to next state*/
             {
             tx_fsm = LORA_TX_STATE_GETTING_BUF;
-            lora_status = lora_read_register_IT(LORA_REG_FIFO_TX_BASE_ADDR, register_contents);
+            lora_status = _lora_read_register_IT(LORA_REG_FIFO_TX_BASE_ADDR, register_contents);
             }
         return;
         }
@@ -194,7 +205,7 @@ switch( tx_fsm )
             }
 
         tx_fsm = LORA_TX_STATE_SETTING_TX_BASE;
-        lora_status = lora_write_register_IT(LORA_REG_FIFO_SPI_POINTER, register_contents[1]);
+        lora_status = _lora_write_register_IT(LORA_REG_FIFO_SPI_POINTER, register_contents[1]);
         return;
         }
 
@@ -207,7 +218,7 @@ switch( tx_fsm )
             }
 
         tx_fsm = LORA_TX_STATE_WRITING_MSG_LEN;
-        lora_status = lora_write_register_IT(LORA_REG_SIGNAL_TO_NOISE, TELEMETRY_MESSAGE_SIZE);
+        lora_status = _lora_write_register_IT(LORA_REG_SIGNAL_TO_NOISE, TELEMETRY_MESSAGE_SIZE);
         return;
         }
 
@@ -223,7 +234,7 @@ switch( tx_fsm )
         telemetry_get_next_message(&payload);
         burst_write_buf[0] = (LORA_REG_FIFO_RW | 0x80); /* set up reg write */
         memcpy(&(burst_write_buf[1]), &payload, TELEMETRY_MESSAGE_SIZE);
-        lora_status = lora_write_IT(burst_write_buf, TELEMETRY_MESSAGE_SIZE + 1);
+        lora_status = _lora_write_IT(burst_write_buf, TELEMETRY_MESSAGE_SIZE + 1);
         return;
         }
     
@@ -237,7 +248,7 @@ switch( tx_fsm )
         
         /* check status register */
         tx_fsm = LORA_TX_STATE_PRE_TX_STATUS_CHECK;
-        lora_status = lora_read_register_IT(LORA_REG_OPERATION_MODE, register_contents);
+        lora_status = _lora_read_register_IT(LORA_REG_OPERATION_MODE, register_contents);
         return;
         }
 
@@ -253,7 +264,7 @@ switch( tx_fsm )
         tx_fsm = LORA_TX_STATE_STARTING_TRANSMISSION;
         uint8_t new_opmode_register = (register_contents[1] & ~(0x7));
         new_opmode_register = (new_opmode_register | LORA_TRANSMIT_MODE);
-        lora_status = lora_write_register_IT( LORA_REG_OPERATION_MODE, new_opmode_register );
+        lora_status = _lora_write_register_IT( LORA_REG_OPERATION_MODE, new_opmode_register );
         return;
         }
     
@@ -268,7 +279,7 @@ switch( tx_fsm )
         /* opmode change complete, we are now transmitting */
         tx_fsm = LORA_TX_STATE_TRANSMITTING;
         register_contents[1] = 0xFF; /* set this to FF so we can detect when the contents have changed */
-        lora_status = lora_read_register_IT(LORA_REG_OPERATION_MODE, register_contents);
+        lora_status = _lora_read_register_IT(LORA_REG_OPERATION_MODE, register_contents);
         return;
         }
 
@@ -285,16 +296,15 @@ switch( tx_fsm )
             {
             /* transmission is complete! start the buffer retrieval operation and jump higher on the FSM */
             tx_fsm = LORA_TX_STATE_GETTING_BUF;
-            lora_status = lora_read_register_IT(LORA_REG_FIFO_TX_BASE_ADDR, register_contents);
+            lora_status = _lora_read_register_IT(LORA_REG_FIFO_TX_BASE_ADDR, register_contents);
             }
         else
             {
-            lora_status = lora_read_register_IT(LORA_REG_OPERATION_MODE, register_contents);
+            lora_status = _lora_read_register_IT(LORA_REG_OPERATION_MODE, register_contents);
             }
         return;
         }
         
     }
-
 
 } /* lora_tx_update */

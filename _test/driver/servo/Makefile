@@ -89,7 +89,8 @@ C_INCLUDES =                                           \
 -I$(LIB_DIR)/Drivers/CMSIS/Include                     \
 -I$(ROOT_DIR)/init/rev2/config/Inc			   \
 -I$(TEST_DIR)/framework/src                       \
--I$(TEST_DIR)/driver/servo/mock
+-I$(TEST_DIR)/driver/servo/mock					\
+-I$(TEST_DIR)/utilities
 
 # Preprocessor definitions
 # Don't worry about the defs and flags unless you know what you're doing
