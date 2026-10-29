@@ -32,22 +32,6 @@ extern "C" {
 #define SEC_PER_MIN         ( 60UL )
 #define MIN_PER_HOUR        ( 60UL )
 
-
-/*------------------------------------------------------------------------------
- Types 
-------------------------------------------------------------------------------*/
-typedef uint16_t time_hours; /* we can't exceed this limit without rolling over the systick */
-typedef uint8_t time_mins;   /* 0-59     */
-typedef uint8_t time_secs;   /* 0-59     */
-typedef uint16_t time_millis;/* 0-999    */
-
-typedef struct _SYSTEM_TIME {
-    time_hours      hours;
-    time_mins       mins;
-    time_secs       secs;  
-    time_millis     millis;
-} SYSTEM_TIME;
-
 /*------------------------------------------------------------------------------
  Function Prototypes 
 ------------------------------------------------------------------------------*/
@@ -68,11 +52,6 @@ void delay_us
     );
 
 void micro_tim_IT_handler
-    (
-    void
-    );
-
-SYSTEM_TIME get_system_time
     (
     void
     );
