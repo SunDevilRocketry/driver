@@ -484,14 +484,22 @@ IMU_STATUS imu_it_handler
     );
 
 /**
- * @brief  Consumer - retrieves the latest interrupt-mode accel/gyro/mag data.
- * @param  cpy_ptr: Destination struct for the copied sensor readout.
- * @return IMU_STATUS: IMU_BUSY until both imu_data_ready and mag_data_ready
- *         are set by imu_it_handler().
- */
-IMU_STATUS get_imu_it
+  * @brief  Getter function for IMU sensor data (interrupt mode).
+  * @param[out]  accel Destination vector for acceleration data
+  * @param[in]  accel_bias Offset vector for acceleration data
+  * @param[out]  gyro  Destination vector for gyro data
+  * @param[in]  gyro_bias Offset vector for gyro data
+  * @param[out]  mag   Destination vector for mag data
+  * @return IMU_STATUS: IMU_BUSY until both imu_data_ready and mag_data_ready
+  *         are set by imu_it_handler().
+  */
+IMU_STATUS imu_get_it
     (
-    IMU_RAW* cpy_ptr
+    VECTOR_3F* accel,
+    VECTOR_3F  accel_bias,
+    VECTOR_3F* gyro,
+    VECTOR_3F  gyro_bias,
+    VECTOR_3F* mag
     );
 
 /** @brief Getter function for the magnetometer trim coefficients            */
@@ -499,6 +507,57 @@ MAG_TRIM imu_get_mag_trim
     (
     void
     );
+
+/**
+  * @brief Converts raw magnetometer readings into magnetic field data.
+  * @param imu_converted Converted IMU data to update.
+  * @param imu_raw Raw magnetometer readouts.
+  *
+  * @attention 
+  * 
+  * This function is heavily derived from the official Bosch BMM150
+  * driver, which is protected by the BSD-3-Clause license. This function
+  *	is exempt from any licensing that may be applied to a current/future
+  *	Sun Devil Rocketry project. Per the terms of the BSD-3-Clause license,
+  *	the following notice is retained from the source project and applies
+  *	to the procedure below.
+  *
+  * 	Copyright (c) 2020 Bosch Sensortec GmbH. All rights reserved.
+  *
+  *		BSD-3-Clause
+  *																			   
+  *		Redistribution and use in source and binary forms, with or without	   
+  *		modification, are permitted provided that the following conditions are 
+  *		met:																   
+  *																			   
+  *		1. Redistributions of source code must retain the above copyright      
+  *	    notice, this list of conditions and the following disclaimer.		   
+  *																			   
+  *		2. Redistributions in binary form must reproduce the above copyright   
+  *	    notice, this list of conditions and the following disclaimer in the    
+  *	    documentation and/or other materials provided with the distribution.   
+  *																			   
+  *		3. Neither the name of the copyright holder nor the names of its       
+  *	    contributors may be used to endorse or promote products derived from   
+  *	    this software without specific prior written permission. 			   
+  *																			   
+  *		THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS	   
+  *		"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT	   
+  *		LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS	   
+  *		FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE		   
+  *		COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,   
+  *		INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES			   
+  *		(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR	   
+  *		SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)	   
+  *		HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,	   
+  *		STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING  
+  *		IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE	   
+  *		POSSIBILITY OF SUCH DAMAGE.		
+  */
+VECTOR_3F imu_conv_mag
+	(
+	IMU_RAW* imu_raw
+	);
 
 #ifdef __cplusplus
 }

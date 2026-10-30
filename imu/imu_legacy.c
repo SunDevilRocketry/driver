@@ -135,6 +135,16 @@ static IMU_STATUS read_mag_regs_IT
     uint8_t  num_regs
     );
 
+/** @brief Convert IMU data to usable format */
+static void imu_conv
+	(
+	IMU_RAW* imu_raw,
+    VECTOR_3F* accel,
+    VECTOR_3F  accel_bias,
+    VECTOR_3F* gyro,
+    VECTOR_3F  gyro_bias,
+    VECTOR_3F* mag
+	);
 
 /*------------------------------------------------------------------------------
  Procedures 
@@ -1110,14 +1120,64 @@ return IMU_FAIL;
 
 
 /**
+  * @brief Converts raw IMU readings into calibrated, remapped sensor data.
+  *
+  * @param[in] imu_raw Raw IMU readouts.
+  * @param[out]  accel Destination vector for acceleration data
+  * @param[in]  accel_bias Offset vector for acceleration data
+  * @param[out]  gyro  Destination vector for gyro data
+  * @param[in]  gyro_bias Offset vector for gyro data
+  * @param[out]  mag   Destination vector for mag data
+  */
+static void imu_conv
+	(
+	IMU_RAW* imu_raw,
+    VECTOR_3F* accel,
+    VECTOR_3F  accel_bias,
+    VECTOR_3F* gyro,
+    VECTOR_3F  gyro_bias,
+    VECTOR_3F* mag
+	)
+{
+/* Convert raw accel values */ 
+accel->x = imu_raw->accel_x * ((2.0f * 16.0f * GRAVITY ) / UINT16_MAX);
+accel->y = imu_raw->accel_y * ((2.0f * 16.0f * GRAVITY ) / UINT16_MAX);
+accel->z = imu_raw->accel_z * ((2.0f * 16.0f * GRAVITY ) / UINT16_MAX);
+
+(void)accel_bias;
+
+/* Convert raw gyroscope values to deg/s and remap axes */
+gyro->x = imu_raw->gyro_x / (UINT16_MAX / ( 2.0f * 2000.0f ));
+gyro->y = imu_raw->gyro_y / (UINT16_MAX / ( 2.0f * 2000.0f ));
+gyro->z = imu_raw->gyro_z / (UINT16_MAX / ( 2.0f * 2000.0f ));
+
+/* Remove gyro bias BEFORE applying axis conversion */
+gyro->x -= gyro_bias.x;
+gyro->y -= gyro_bias.y;
+gyro->z -= gyro_bias.z;
+
+*mag = imu_conv_mag(imu_raw);
+
+} /* imu_conv */
+
+
+/**
   * @brief  Getter function for IMU sensor data (interrupt mode).
-  * @param  cpy_ptr: Destination struct for the copied sensor readout.
+  * @param[out]  accel Destination vector for acceleration data
+  * @param[in]  accel_bias Offset vector for acceleration data
+  * @param[out]  gyro  Destination vector for gyro data
+  * @param[in]  gyro_bias Offset vector for gyro data
+  * @param[out]  mag   Destination vector for mag data
   * @return IMU_STATUS: IMU_BUSY until both imu_data_ready and mag_data_ready
   *         are set by imu_it_handler().
   */
-IMU_STATUS get_imu_it
+IMU_STATUS imu_get_it
     (
-    IMU_RAW* cpy_ptr
+    VECTOR_3F* accel,
+    VECTOR_3F  accel_bias,
+    VECTOR_3F* gyro,
+    VECTOR_3F  gyro_bias,
+    VECTOR_3F* mag
     )
 {
 if( !imu_data_ready || !mag_data_ready )
@@ -1125,9 +1185,10 @@ if( !imu_data_ready || !mag_data_ready )
     return IMU_BUSY;
     }
 
-memcpy( cpy_ptr, &imu_raw_processed, sizeof( IMU_RAW ) );
+imu_conv( &imu_raw_processed, accel, accel_bias, gyro, gyro_bias, mag );
 
 return IMU_OK;
+
 } /* get_imu_it */
 
 
@@ -1189,6 +1250,122 @@ MAG_TRIM imu_get_mag_trim
 return mag_trim;
 
 } /* imu_get_mag_trim */
+
+
+/**
+  * @brief Converts raw magnetometer readings into magnetic field data.
+  * @param imu_converted Converted IMU data to update.
+  * @param imu_raw Raw magnetometer readouts.
+  *
+  * @attention 
+  * 
+  * This function is heavily derived from the official Bosch BMM150
+  * driver, which is protected by the BSD-3-Clause license. This function
+  *	is exempt from any licensing that may be applied to a current/future
+  *	Sun Devil Rocketry project. Per the terms of the BSD-3-Clause license,
+  *	the following notice is retained from the source project and applies
+  *	to the procedure below.
+  *
+  * 	Copyright (c) 2020 Bosch Sensortec GmbH. All rights reserved.
+  *
+  *		BSD-3-Clause
+  *																			   
+  *		Redistribution and use in source and binary forms, with or without	   
+  *		modification, are permitted provided that the following conditions are 
+  *		met:																   
+  *																			   
+  *		1. Redistributions of source code must retain the above copyright      
+  *	    notice, this list of conditions and the following disclaimer.		   
+  *																			   
+  *		2. Redistributions in binary form must reproduce the above copyright   
+  *	    notice, this list of conditions and the following disclaimer in the    
+  *	    documentation and/or other materials provided with the distribution.   
+  *																			   
+  *		3. Neither the name of the copyright holder nor the names of its       
+  *	    contributors may be used to endorse or promote products derived from   
+  *	    this software without specific prior written permission. 			   
+  *																			   
+  *		THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS	   
+  *		"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT	   
+  *		LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS	   
+  *		FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE		   
+  *		COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,   
+  *		INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES			   
+  *		(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR	   
+  *		SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)	   
+  *		HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,	   
+  *		STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING  
+  *		IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE	   
+  *		POSSIBILITY OF SUCH DAMAGE.		
+  */
+VECTOR_3F imu_conv_mag
+	(
+	IMU_RAW* imu_raw
+	)
+{
+/*------------------------------------------------------------------------------
+ Local Variables  
+------------------------------------------------------------------------------*/
+VECTOR_3F mag;
+MAG_TRIM mag_trim;
+float mag_x;
+float mag_y;
+float mag_z;
+
+/*------------------------------------------------------------------------------
+ Initializations 
+------------------------------------------------------------------------------*/
+mag_trim = imu_get_mag_trim();
+
+/*------------------------------------------------------------------------------
+ Apply Bosch compensation using factory trim values
+------------------------------------------------------------------------------*/
+float rhall = imu_raw->mag_hall;
+if ( (rhall != 0) && (mag_trim.dig_xyz1 != 0) )
+    {
+    /* ---- X compensation ---- */
+    float process_comp_x0 = (((float)mag_trim.dig_xyz1) * 16384.0f / rhall);
+    mag_x = (process_comp_x0 - 16384.0f);
+    float process_comp_x1 = ((float)mag_trim.dig_xy2) * (mag_x * mag_x / 268435456.0f);
+    float process_comp_x2 = process_comp_x1 + mag_x * ((float)mag_trim.dig_xy1) / 16384.0f;
+    float process_comp_x3 = ((float)mag_trim.dig_x2) + 160.0f;
+    float process_comp_x4 = ((float)imu_raw->mag_x) * ((process_comp_x2 + 256.0f) * process_comp_x3);
+    mag_x = ((process_comp_x4 / 8192.0f) + (((float)mag_trim.dig_x1) * 8.0f)) / 16.0f; /* µT */
+
+    /* ---- Y compensation ---- */
+    float process_comp_y0 = ((float)mag_trim.dig_xyz1) * 16384.0f / rhall;
+    mag_y = process_comp_y0 - 16384.0f;
+    float process_comp_y1 = ((float)mag_trim.dig_xy2) * (mag_y * mag_y / 268435456.0f);
+    float process_comp_y2 = process_comp_y1 + mag_y * ((float)mag_trim.dig_xy1) / 16384.0f;
+    float process_comp_y3 = ((float)mag_trim.dig_y2) + 160.0f;
+    float process_comp_y4 = ((float)imu_raw->mag_y) * (((process_comp_y2) + 256.0f) * process_comp_y3);
+    mag_y = ((process_comp_y4 / 8192.0f) + (((float)mag_trim.dig_y1) * 8.0f)) / 16.0f; /* µT */
+
+    /* ---- Z compensation ---- */
+    float process_comp_z0 = ((float)imu_raw->mag_z) - ((float)mag_trim.dig_z4);
+    float process_comp_z1 = ((float)rhall) - ((float)mag_trim.dig_xyz1);
+    float process_comp_z2 = (((float)mag_trim.dig_z3) * process_comp_z1);
+    float process_comp_z3 = ((float)mag_trim.dig_z1) * ((float)rhall) / 32768.0f;
+    float process_comp_z4 = ((float)mag_trim.dig_z2) + process_comp_z3;
+    float process_comp_z5 = (process_comp_z0 * 131072.0f) - process_comp_z2;
+    mag_z = (process_comp_z5 / ((process_comp_z4) * 4.0f)) / 16.0f; /* µT */
+    }
+else /* Data is invalid */
+    {
+    mag_x = 0.0f;
+    mag_y = 0.0f;
+    mag_z = 0.0f;
+    }
+/*------------------------------------------------------------------------------
+ Store converted field data
+------------------------------------------------------------------------------*/
+mag.x = mag_x;
+mag.y = mag_y;
+mag.z = mag_z;
+
+return mag;
+
+} /* imu_conv_mag */
 
 /*******************************************************************************
 * END OF FILE                                                                  * 
