@@ -56,6 +56,11 @@
 
 #define LORA_BLOCKING_TX_TIMEOUT 50
 
+/* Cache maintenance only on cores with a D-cache (M7), not on x86 emulator or unit test builds */
+#if defined( __DCACHE_PRESENT ) && ( __DCACHE_PRESENT == 1U ) && !defined( EMULATOR ) && !defined( UNIT_TEST )
+    #define LORA_DCACHE_MAINTENANCE
+#endif
+
 /* Mode to return to after a DMA transmit completes */
 #if defined( FLIGHT_COMPUTER )
     #define LORA_IDLE_MODE  LORA_STANDBY_MODE
@@ -400,6 +405,7 @@ LORA_STATUS read_status2 = read_register( LORA_REG_RX_HEADER_INFO, &modem_config
 
 uint8_t new_config2_register = modem_config2_register & 0x0F; // Erase spread factor bits
 new_config2_register = ( new_config2_register | ( lora_config_ptr->lora_spread << 4 ) ); // Set the spread factor
+new_config2_register |= 0x04U; // RxPayloadCrcOn: TX appends a payload CRC, RX checks it
 LORA_STATUS write_status2 = write_register( LORA_REG_RX_HEADER_INFO, new_config2_register ); // Write new spread factor
 
 // Get initial value of config register 1
@@ -747,6 +753,7 @@ if ( lora_set_chip_mode( LORA_STANDBY_MODE ) != LORA_OK
   || read_register( LORA_REG_FIFO_TX_BASE_ADDR, &tx_base_addr ) != LORA_OK
   || write_register( LORA_REG_FIFO_SPI_POINTER, tx_base_addr ) != LORA_OK
   || write_register( LORA_REG_SIGNAL_TO_NOISE, buffer_len ) != LORA_OK /* 0x22 = RegPayloadLength */
+  || write_register( LORA_REG_IRQ_FLAGS, LORA_IRQ_TX_DONE ) != LORA_OK /* A stale TxDone would raise DIO0 at the mapping write */
   || write_register( LORA_REG_DIO_MAPPING_MODE_1, 0x40U ) != LORA_OK )
     {
     atomic_store( &dma_busy, false );
@@ -754,7 +761,7 @@ if ( lora_set_chip_mode( LORA_STANDBY_MODE ) != LORA_OK
     }
 
 memcpy( dma_tx_buf, buffer_ptr, buffer_len );
-#if !defined( EMULATOR ) && !defined( UNIT_TEST )
+#ifdef LORA_DCACHE_MAINTENANCE
 SCB_CleanDCache_by_Addr( (uint32_t*)dma_tx_buf, (int32_t)LORA_DMA_BUF_BYTES_ALIGNED );
 #endif
 
@@ -832,7 +839,7 @@ dma_rx_bytes[ dma_fill_idx ] = rx_num_bytes;
 
 /* Dummy bytes clock the SPI during the full-duplex read */
 memset( dma_tx_buf, 0x00U, rx_num_bytes );
-#if !defined( EMULATOR ) && !defined( UNIT_TEST )
+#ifdef LORA_DCACHE_MAINTENANCE
 SCB_CleanDCache_by_Addr( (uint32_t*)dma_tx_buf, (int32_t)LORA_DMA_BUF_BYTES_ALIGNED );
 #endif
 
@@ -942,7 +949,7 @@ if ( dma_pending_op == LORA_DMA_OP_TX )
 
 if ( dma_pending_op == LORA_DMA_OP_RX )
     {
-    #if !defined( EMULATOR ) && !defined( UNIT_TEST )
+    #ifdef LORA_DCACHE_MAINTENANCE
     SCB_InvalidateDCache_by_Addr( (uint32_t*)dma_rx_buf[ dma_fill_idx ], (int32_t)LORA_DMA_BUF_BYTES_ALIGNED );
     #endif
     dma_ready_idx = dma_fill_idx;
