@@ -22,28 +22,33 @@
   ==============================================================================
   [..]
   ## Dependencies:
-  - None (lora_async.c is an optional extension of this driver)
-  
+  - None
+
   ## Invariants (contract):
   - The project must call lora_init() or lora_configure() before attempting
     to use this library.
   - The hardware must have an RFM95.
   - This file's abstractions must not be broken as all assumptions rely on
     the public interfaces being used for interaction.
-  - The project must register the following callbacks for the LORA_SPI handle.
-    All of these callbacks must deassert the NSS pin, and if lora_async is enabled
-    they must call lora_fsm_update with the event ID in parentheses:
-    - HAL_SPI_TxRxCpltCallback (LORA_FSM_EVENT_REG_READ_CPLT)
-    - HAL_SPI_TxCpltCallback (LORA_FSM_EVENT_WRITE_CPLT)
-  
+  - To use the DMA API, the project must route these callbacks for LORA_SPI
+    and the DIO0 EXTI line (the driver releases NSS itself):
+    - HAL_SPI_TxCpltCallback, HAL_SPI_TxRxCpltCallback -> lora_process_async_cb
+    - HAL_SPI_ErrorCallback -> lora_process_async_error_cb
+    - HAL_GPIO_EXTI_Callback (LORA_IO0_PIN) -> lora_process_dio0_cb
+  - DMA buffers live in the .dma_buffer linker section (D2 SRAM), since DTCM
+    is not reachable by DMA1/DMA2.
+
   ## Instructions:
   - Call lora_init or lora_configure to set up the modem
+  - Blocking: lora_transmit, lora_receive_ready, lora_receive
+  - DMA: lora_transmit_async, lora_has_new_data, lora_get_latest
   ******************************************************************************
   @endverbatim
   */
 
 /* Includes ------------------------------------------------------------------*/
 #include <string.h>
+#include <stdatomic.h>
 
 #include "pindefs.h"
 
@@ -51,9 +56,44 @@
 
 #define LORA_BLOCKING_TX_TIMEOUT 50
 
+/* Mode to return to after a DMA transmit completes */
+#if defined( FLIGHT_COMPUTER )
+    #define LORA_IDLE_MODE  LORA_STANDBY_MODE
+#else
+    #define LORA_IDLE_MODE  LORA_RX_CONTINUOUS_MODE
+#endif
+
 /* Globals -------------------------------------------------------------------*/
 static LORA_STATUS lora_rx_done = LORA_WAITING;
 static bool is_lora_configured = false;
+
+/* DMA payload buffers; the address byte is sent by polling first, NSS held low */
+__ALIGNED(32) __attribute__((section(".dma_buffer")))
+static uint8_t dma_tx_buf[ LORA_DMA_BUF_BYTES_ALIGNED ];
+
+__ALIGNED(32) __attribute__((section(".dma_buffer")))
+static uint8_t dma_rx_buf[ 2 ][ LORA_DMA_BUF_BYTES_ALIGNED ];
+
+typedef enum _LORA_DMA_OP {
+    LORA_DMA_OP_NONE = 0,
+    LORA_DMA_OP_TX,
+    LORA_DMA_OP_RX
+} LORA_DMA_OP;
+
+/* Written in ISR context, read from the main loop */
+static atomic_bool dma_busy  = false;
+static atomic_bool dma_ready = false;
+static _Atomic uint8_t dma_ready_idx = 0U;
+
+static uint8_t     dma_rx_bytes[ 2 ];
+static uint8_t     dma_fill_idx = 0U;
+static LORA_DMA_OP dma_pending_op = LORA_DMA_OP_NONE;
+
+/* Shadow of RegOpMode so ISRs can change mode without a blocking read */
+static uint8_t opmode_cache = 0U;
+
+/* DIO0 means TxDone while this is set, RxDone otherwise */
+static bool dma_awaiting_txdone = false;
 
 /* Static Prototypes ---------------------------------------------------------*/
 
@@ -102,6 +142,18 @@ static LORA_STATUS write_register_buffer
 static LORA_STATUS get_device_id
     (
     uint8_t* register_value
+    );
+
+static LORA_STATUS isr_read_register
+    (
+    LORA_REGISTER_ADDR lora_register,
+    uint8_t* data
+    );
+
+static LORA_STATUS isr_write_register
+    (
+    LORA_REGISTER_ADDR lora_register,
+    uint8_t data
     );
 
 /* Procedures ----------------------------------------------------------------*/
@@ -192,10 +244,14 @@ else
     lora_status = LORA_OK;
     }
 
-/* reset and re-initialize */
+/* reset and re-initialize; DIO0 is masked so mid-init edges aren't read as RxDone/TxDone */
+HAL_NVIC_DisableIRQ( LORA_IO0_EXTI_IRQn );
 lora_reset();
 HAL_Delay(10);
-if (lora_init( &lora_config ) == LORA_OK)
+LORA_STATUS init_status = lora_init( &lora_config );
+HAL_NVIC_EnableIRQ( LORA_IO0_EXTI_IRQn );
+
+if (init_status == LORA_OK)
     {
     is_lora_configured = true;
     return lora_status;
@@ -237,6 +293,7 @@ LORA_STATUS write_status = write_register( LORA_REG_OPERATION_MODE, new_opmode_r
 
 if ( write_status + read_status == 0 )
     {
+    opmode_cache = new_opmode_register;
     return LORA_OK;
     }
     
@@ -260,7 +317,7 @@ LORA_STATUS lora_init
 uint8_t device_id = 0;
 get_device_id( &device_id );
 
-if( device_id != 0x12 ) 
+if( device_id != LORA_ID_VERSION_VAL )
     {
     return LORA_FAIL;
     }
@@ -411,6 +468,12 @@ LORA_STATUS lora_transmit
     uint8_t buffer_len
     )
 {
+/* Blocking TX/RX is planned to be removed in favor of the DMA API; until then, stay off the bus during DMA */
+if ( atomic_load( &dma_busy ) )
+    {
+    return LORA_BUSY;
+    }
+
 // Mode request STAND-BY
 LORA_STATUS standby_status = lora_set_chip_mode(LORA_STANDBY_MODE);
 
@@ -475,6 +538,12 @@ LORA_STATUS lora_receive_ready
     void
     )
 {
+/* Planned to be removed with blocking TX/RX; would clear the IRQ flags the DMA RX path relies on */
+if ( atomic_load( &dma_busy ) )
+    {
+    return LORA_BUSY;
+    }
+
 uint8_t mode;
 
 LORA_STATUS mode_check = read_register( LORA_REG_OPERATION_MODE, &mode );
@@ -520,6 +589,12 @@ LORA_STATUS lora_receive
     uint8_t* num_bytes_received
     )
 {
+/* Planned to be removed with blocking TX/RX */
+if ( atomic_load( &dma_busy ) )
+    {
+    return LORA_BUSY;
+    }
+
 if ( lora_rx_done == LORA_READY ){
     // Write IRQ flags
     uint8_t irq_flag;
@@ -586,115 +661,312 @@ if ( lora_rx_done == LORA_READY ){
 return LORA_FAIL;
 }
 
-/* Private Procedures --------------------------------------------------------*/
-
 /**
- * @brief Read a register in non-blocking mode.
- * 
- * @note A completion callback (HAL_SPI_TxRxCpltCallback) for this operation
- * MUST be registered for the LoRa SPI handle. The completion callback must
- * pull NSS high via 
- * HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+ * @brief Read RegVersion over SPI. Diagnostic only: no reset, no mode change.
  *
- * @param lora_register The register to read
- * @param[out] pRegData A two-byte buffer that must stay in scope until the
- * completion callback is called. The second byte will have the requested
- * data.
- *
- * @return The status of the LoRa modem.
+ * @param[out] version The raw register byte (expect LORA_ID_VERSION_VAL).
+ * @return LORA_FAIL if the SPI transaction itself failed.
  */
-LORA_STATUS _lora_read_register_IT
+LORA_STATUS lora_probe_version
     (
-    uint8_t lora_register,
-    uint8_t* pRegData /* o: 2 byte array; first byte will be empty, second will have the data */
+    uint8_t* version
     )
 {
-HAL_StatusTypeDef hal_status;
-static uint8_t read_reg[2];
-read_reg[0] = lora_register & 0x7F;
-read_reg[1] = 0x00;
+return get_device_id( version );
 
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
-hal_status = HAL_SPI_TransmitReceive_IT( &(LORA_SPI), read_reg, pRegData, 2 );
+} /* lora_probe_version */
 
-/* NSS high is in the callback */
 
-if ( hal_status == HAL_OK )
+/* DMA Procedures ------------------------------------------------------------*/
+
+/**
+ * @brief Start a DMA transmit of buffer_ptr[0..buffer_len).
+ *
+ * @note Asserts NSS and hands the bus to DMA. NSS is released only by
+ * lora_process_async_cb() or lora_process_async_error_cb(). The busy flag
+ * stays set until DIO0 reports TxDone.
+ *
+ * @param[in] buffer_ptr The payload to transmit.
+ * @param buffer_len The payload length (1-255).
+ * @retval LORA_BUSY A DMA transfer or transmission is still in flight.
+ * @retval LORA_BUFFER_UNDERSIZED buffer_len is 0.
+ */
+LORA_STATUS lora_transmit_async
+    (
+    uint8_t* buffer_ptr,
+    uint8_t buffer_len
+    )
+{
+uint8_t tx_base_addr;
+
+if ( buffer_len == 0U )
     {
-    return LORA_OK;
+    return LORA_BUFFER_UNDERSIZED;
     }
-else
+
+if ( atomic_exchange( &dma_busy, true ) )
     {
+    return LORA_BUSY;
+    }
+
+/* FIFO can only be filled in standby (datasheet 4.1.6); DIO0 = TxDone needs Dio0Mapping 01 (Table 63) */
+if ( lora_set_chip_mode( LORA_STANDBY_MODE ) != LORA_OK
+  || read_register( LORA_REG_FIFO_TX_BASE_ADDR, &tx_base_addr ) != LORA_OK
+  || write_register( LORA_REG_FIFO_SPI_POINTER, tx_base_addr ) != LORA_OK
+  || write_register( LORA_REG_SIGNAL_TO_NOISE, buffer_len ) != LORA_OK /* 0x22 = RegPayloadLength */
+  || write_register( LORA_REG_DIO_MAPPING_MODE_1, 0x40U ) != LORA_OK )
+    {
+    atomic_store( &dma_busy, false );
     return LORA_FAIL;
     }
 
-} /* _lora_read_register_IT */
-
-
-/**
- * @brief Write a register in non-blocking mode.
- * 
- * @note A completion callback (HAL_SPI_TxCpltCallback) for this operation
- * MUST be registered for the LoRa SPI handle. The completion callback must
- * pull NSS high via 
- * HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
- *
- * @param lora_register The register to write
- * @param data The value to write to the register
- *
- * @return The status of the LoRa modem.
- */
-LORA_STATUS _lora_write_register_IT
-    (
-    uint8_t lora_register,
-    uint8_t data
-    )
-{
-static uint8_t write_reg[2]; /* statically scoped so it doesn't go out of scope during tx */
-write_reg[0] = (lora_register | 0x80);
-write_reg[1] = data;
-
-return _lora_write_IT(write_reg, 2);
-
-} /* _lora_write_register_IT */
-
-
-/**
- * @brief Write to the LoRa modem in nonblocking mode.
- * 
- * @note A completion callback (HAL_SPI_TxCpltCallback) for this operation
- * MUST be registered for the LoRa SPI handle. The completion callback must
- * pull NSS high via 
- * HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
- *
- * @param[in] data The buffer to write to the register. It MUST stay in
- * scope until the write completes.
- *
- * @return The status of the LoRa modem.
- */
-LORA_STATUS _lora_write_IT
-    (
-    uint8_t* data,
-    size_t   len
-    )
-{
-HAL_StatusTypeDef hal_status;
+memcpy( dma_tx_buf, buffer_ptr, buffer_len );
+#if !defined( EMULATOR ) && !defined( UNIT_TEST )
+SCB_CleanDCache_by_Addr( (uint32_t*)dma_tx_buf, (int32_t)LORA_DMA_BUF_BYTES_ALIGNED );
+#endif
 
 HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
-hal_status = HAL_SPI_Transmit_IT( &(LORA_SPI), data, len );
 
-/* NSS high is in the callback */
-
-if ( hal_status == HAL_OK )
+if ( spi_transmit_byte( LORA_REG_FIFO_RW | 0x80 ) != LORA_OK )
     {
-    return LORA_OK;
-    }
-else
-    {
+    HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+    atomic_store( &dma_busy, false );
     return LORA_FAIL;
     }
 
-} /* _lora_write_IT */
+dma_pending_op = LORA_DMA_OP_TX;
+
+if ( HAL_SPI_Transmit_DMA( &(LORA_SPI), dma_tx_buf, buffer_len ) != HAL_OK )
+    {
+    dma_pending_op = LORA_DMA_OP_NONE;
+    HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+    atomic_store( &dma_busy, false );
+    return LORA_FAIL;
+    }
+
+return LORA_OK;
+
+} /* lora_transmit_async */
+
+
+/**
+ * @brief Start a DMA read of the last packet received into the FIFO.
+ *
+ * @note Called from the DIO0 ISR on RxDone. Uses short-timeout register
+ * access, then a full-duplex DMA burst into the free half of the double
+ * buffer. NSS follows the same contract as lora_transmit_async().
+ *
+ * @retval LORA_BUSY A DMA transfer is still in flight.
+ * @retval LORA_RECEIVE_FAIL The packet failed its payload CRC.
+ */
+LORA_STATUS lora_request_receive_async
+    (
+    void
+    )
+{
+uint8_t rx_current_addr;
+uint8_t rx_num_bytes;
+uint8_t irq_flags;
+
+if ( atomic_exchange( &dma_busy, true ) )
+    {
+    return LORA_BUSY;
+    }
+
+if ( isr_read_register( LORA_REG_FIFO_RX_BASE_CUR_ADDR, &rx_current_addr ) != LORA_OK
+  || isr_write_register( LORA_REG_FIFO_SPI_POINTER, rx_current_addr ) != LORA_OK
+  || isr_read_register( LORA_REG_FIFO_RX_NUM_BYTES, &rx_num_bytes ) != LORA_OK
+  || rx_num_bytes == 0U
+  || isr_read_register( LORA_REG_IRQ_FLAGS, &irq_flags ) != LORA_OK )
+    {
+    atomic_store( &dma_busy, false );
+    return LORA_FAIL;
+    }
+
+/* Write back whatever is set to clear it (RxDone, ValidHeader, CRC error) */
+isr_write_register( LORA_REG_IRQ_FLAGS, irq_flags );
+
+if ( ( irq_flags & LORA_IRQ_PAYLOAD_CRC_ERROR ) != 0U )
+    {
+    atomic_store( &dma_busy, false );
+    return LORA_RECEIVE_FAIL;
+    }
+
+/* Fill the row not holding an unconsumed packet */
+dma_fill_idx ^= 1U;
+dma_rx_bytes[ dma_fill_idx ] = rx_num_bytes;
+
+/* Dummy bytes clock the SPI during the full-duplex read */
+memset( dma_tx_buf, 0x00U, rx_num_bytes );
+#if !defined( EMULATOR ) && !defined( UNIT_TEST )
+SCB_CleanDCache_by_Addr( (uint32_t*)dma_tx_buf, (int32_t)LORA_DMA_BUF_BYTES_ALIGNED );
+#endif
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+
+if ( spi_transmit_byte( LORA_REG_FIFO_RW & 0x7F ) != LORA_OK )
+    {
+    HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+    atomic_store( &dma_busy, false );
+    return LORA_FAIL;
+    }
+
+dma_pending_op = LORA_DMA_OP_RX;
+
+if ( HAL_SPI_TransmitReceive_DMA( &(LORA_SPI), dma_tx_buf, dma_rx_buf[ dma_fill_idx ], rx_num_bytes ) != HAL_OK )
+    {
+    dma_pending_op = LORA_DMA_OP_NONE;
+    HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+    atomic_store( &dma_busy, false );
+    return LORA_FAIL;
+    }
+
+return LORA_OK;
+
+} /* lora_request_receive_async */
+
+
+/**
+ * @brief Check if a completed DMA receive is waiting.
+ *
+ * @retval true Data is ready for lora_get_latest().
+ * @retval false A DMA is in flight or nothing has been received.
+ */
+bool lora_has_new_data
+    (
+    void
+    )
+{
+return atomic_load( &dma_ready );
+
+} /* lora_has_new_data */
+
+
+/**
+ * @brief Copy out the latest completed DMA receive.
+ *
+ * @param[out] buffer_ptr The destination buffer.
+ * @param buffer_len The destination buffer capacity.
+ * @param[out] num_bytes_received Bytes copied (may be NULL).
+ * @retval LORA_WAITING No data is ready.
+ * @retval LORA_BUFFER_UNDERSIZED buffer_len is smaller than the packet.
+ */
+LORA_STATUS lora_get_latest
+    (
+    uint8_t* buffer_ptr,
+    uint8_t buffer_len,
+    uint8_t* num_bytes_received
+    )
+{
+if ( !atomic_load( &dma_ready ) )
+    {
+    return LORA_WAITING;
+    }
+
+uint8_t idx = dma_ready_idx;
+uint8_t rx_bytes = dma_rx_bytes[ idx ];
+
+if ( rx_bytes > buffer_len )
+    {
+    return LORA_BUFFER_UNDERSIZED;
+    }
+
+memcpy( buffer_ptr, dma_rx_buf[ idx ], rx_bytes );
+atomic_store( &dma_ready, false );
+
+if ( num_bytes_received != NULL )
+    {
+    *num_bytes_received = rx_bytes;
+    }
+
+return LORA_OK;
+
+} /* lora_get_latest */
+
+
+/**
+ * @brief DMA complete ISR handler for LORA_SPI.
+ *
+ * @note TX: the FIFO is loaded, so key up transmit; busy stays set until
+ * TxDone. RX: publish the filled buffer row.
+ */
+void lora_process_async_cb
+    (
+    void
+    )
+{
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+if ( dma_pending_op == LORA_DMA_OP_TX )
+    {
+    opmode_cache = ( opmode_cache & ~0x07U ) | LORA_TRANSMIT_MODE;
+    dma_awaiting_txdone = true;
+    dma_pending_op = LORA_DMA_OP_NONE;
+    isr_write_register( LORA_REG_OPERATION_MODE, opmode_cache );
+    return;
+    }
+
+if ( dma_pending_op == LORA_DMA_OP_RX )
+    {
+    #if !defined( EMULATOR ) && !defined( UNIT_TEST )
+    SCB_InvalidateDCache_by_Addr( (uint32_t*)dma_rx_buf[ dma_fill_idx ], (int32_t)LORA_DMA_BUF_BYTES_ALIGNED );
+    #endif
+    dma_ready_idx = dma_fill_idx;
+    atomic_store( &dma_ready, true );
+    }
+
+dma_pending_op = LORA_DMA_OP_NONE;
+atomic_store( &dma_busy, false );
+
+} /* lora_process_async_cb */
+
+
+/**
+ * @brief DMA error ISR handler for LORA_SPI.
+ *
+ * @note Forces NSS high so a failed transfer can't hold the SPI bus.
+ */
+void lora_process_async_error_cb
+    (
+    void
+    )
+{
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+dma_pending_op = LORA_DMA_OP_NONE;
+dma_awaiting_txdone = false;
+atomic_store( &dma_busy, false );
+atomic_store( &dma_ready, false );
+
+} /* lora_process_async_error_cb */
+
+
+/**
+ * @brief DIO0 EXTI ISR handler.
+ *
+ * @note DIO0 is TxDone while a transmit is in flight (mapping 01), else RxDone (00).
+ */
+void lora_process_dio0_cb
+    (
+    void
+    )
+{
+if ( !dma_awaiting_txdone )
+    {
+    lora_request_receive_async();
+    return;
+    }
+
+isr_write_register( LORA_REG_IRQ_FLAGS, LORA_IRQ_TX_DONE );
+isr_write_register( LORA_REG_DIO_MAPPING_MODE_1, 0x00U );
+
+opmode_cache = ( opmode_cache & ~0x07U ) | LORA_IDLE_MODE;
+isr_write_register( LORA_REG_OPERATION_MODE, opmode_cache );
+
+dma_awaiting_txdone = false;
+atomic_store( &dma_busy, false );
+
+} /* lora_process_dio0_cb */
 
 /* Internal Procedures -------------------------------------------------------*/
 
@@ -946,6 +1218,61 @@ if ( status == LORA_OK )
 return LORA_FAIL;
 
 } /* get_device_id */
+
+
+/**
+ * @brief Read a register from ISR context (short timeout).
+ *
+ * @param lora_register The register to read from
+ * @param[out] data The contents of that register
+ * @return LORA_STATUS The status of the LoRa modem
+ */
+static LORA_STATUS isr_read_register
+    (
+    LORA_REGISTER_ADDR lora_register,
+    uint8_t* data
+    )
+{
+uint8_t addr = lora_register & 0x7F;
+HAL_StatusTypeDef status = HAL_OK;
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+
+status |= HAL_SPI_Transmit( &(LORA_SPI), &addr, 1, LORA_ISR_TIMEOUT );
+status |= HAL_SPI_Receive( &(LORA_SPI), data, 1, LORA_ISR_TIMEOUT );
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+return ( status == HAL_OK ) ? LORA_OK : LORA_FAIL;
+
+} /* isr_read_register */
+
+
+/**
+ * @brief Write a register from ISR context (short timeout, no read-back).
+ *
+ * @param lora_register The register to write to
+ * @param data The byte to write into the register
+ * @return LORA_STATUS The status of the LoRa modem.
+ */
+static LORA_STATUS isr_write_register
+    (
+    LORA_REGISTER_ADDR lora_register,
+    uint8_t data
+    )
+{
+uint8_t buf[2] = { lora_register | 0x80, data };
+HAL_StatusTypeDef status;
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
+
+status = HAL_SPI_Transmit( &(LORA_SPI), buf, 2, LORA_ISR_TIMEOUT );
+
+HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+
+return ( status == HAL_OK ) ? LORA_OK : LORA_FAIL;
+
+} /* isr_write_register */
 
 /**
  * End of file

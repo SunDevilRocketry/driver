@@ -36,6 +36,20 @@ extern "C" {
 
 #define LORA_TIMEOUT                2000
 
+/* Short SPI timeout for register access from ISR context, bounds ISR stall */
+#define LORA_ISR_TIMEOUT            ( 5U )
+
+/* RegIrqFlags (0x12) bits, write-1-to-clear */
+#define LORA_IRQ_PAYLOAD_CRC_ERROR  ( 0x20U )
+#define LORA_IRQ_TX_DONE            ( 0x08U )
+
+/* RegVersion (0x42) read-back; SX1276 silicon reports 0x12 */
+#define LORA_ID_VERSION_VAL         ( 0x12U )
+
+/* Full 256-byte FIFO; already a multiple of the 32-byte M7 cache line */
+#define LORA_DMA_MAX_PAYLOAD_BYTES  ( 256U )
+#define LORA_DMA_BUF_BYTES_ALIGNED  ( ( LORA_DMA_MAX_PAYLOAD_BYTES + 31U ) & ~31U )
+
 /* US ISM band frequencies, used in the code to prevent violating US law */
 #define ISM_MAX_FREQ                928000
 #define ISM_MIN_FREQ                902000
@@ -117,7 +131,8 @@ typedef enum _LORA_STATUS {
    LORA_READY,
    LORA_WAITING,
    LORA_USING_DEFAULTS,
-   LORA_INVALID_CMD
+   LORA_INVALID_CMD,
+   LORA_BUSY
 } LORA_STATUS;
 
 /* Datasheet page 107 */
@@ -165,12 +180,6 @@ typedef enum _LORA_PA_SELECT {
    LORA_PA_BOOST = 0x01
 } LORA_PA_SELECT;
 
-typedef enum _LORA_ASYNC_OP_MODE {
-    LORA_ASYNC_OFF = 0x00,
-    LORA_ASYNC_TX  = 0x10,
-    LORA_ASYNC_RX  = 0x20,
-} LORA_ASYNC_OP_MODE;
-
 /* LORA CONFIG SETTINGS -- arg for lora_init() */
 typedef struct _LORA_CONFIG {
    LORA_CHIPMODE lora_mode; // Current LORA Chipmode
@@ -196,28 +205,9 @@ _Static_assert( sizeof( LORA_PRESET ) == 8, "LORA PRESET SIZE MISMATCH." );
 
 typedef enum LORA_SUBCMD_CODES {
     LORA_PRESET_UPLOAD = 0x01,
-    LORA_PRESET_DOWNLOAD = 0x02
+    LORA_PRESET_DOWNLOAD = 0x02,
+    LORA_PROBE_VERSION   = 0x03  /* diagnostic: read RegVersion over SPI */
 } LORA_SUBCMD_CODES;
-
-typedef enum LORA_TX_FSM_STATE {
-    LORA_TX_STATE_BLOCKING = 0,
-    LORA_TX_STATE_STATUS_CHECK,
-    LORA_TX_STATE_GETTING_BUF,
-    LORA_TX_STATE_SETTING_TX_BASE,
-    LORA_TX_STATE_WRITING_MSG_LEN,
-    LORA_TX_STATE_WRITING_MSG,
-    LORA_TX_STATE_PRE_TX_STATUS_CHECK,
-    LORA_TX_STATE_STARTING_TRANSMISSION,
-    LORA_TX_STATE_TRANSMITTING
-} LORA_TX_FSM_STATE;
-
-typedef enum LORA_FSM_EVENT {
-    LORA_FSM_EVENT_CANCEL = 0,
-    LORA_FSM_EVENT_SYNCHRONOUS_UPDATE,
-    LORA_FSM_EVENT_REG_READ_CPLT,
-    LORA_FSM_EVENT_WRITE_CPLT,
-    LORA_FSM_EVENT_EXTI_RAISED
-} LORA_FSM_EVENT;
 
 /*------------------------------------------------------------------------------
  Function Prototypes
@@ -276,37 +266,57 @@ LORA_STATUS lora_receive
     uint8_t* num_bytes_received
     );
 
-/* lora_async.c */
-LORA_STATUS lora_fsm_set_mode
+// Read RegVersion over SPI without reset or mode change (diagnostic)
+LORA_STATUS lora_probe_version
     (
-    LORA_ASYNC_OP_MODE new_mode
+    uint8_t* version
     );
 
-void lora_fsm_update
+/* DMA (non-blocking) */
+
+// Start a DMA transmit; NSS and the busy flag are released by the ISR callbacks
+LORA_STATUS lora_transmit_async
     (
-    LORA_FSM_EVENT update_cause
+    uint8_t* buffer_ptr,
+    uint8_t buffer_len
     );
 
-/** Interrupt driven I/O (used by the telemetry FSM)
-  * These functions are scoped to the driver and should never
-  * be called directly
-  */
-LORA_STATUS _lora_read_register_IT
+// Start a DMA read of the last received packet
+LORA_STATUS lora_request_receive_async
     (
-    uint8_t lora_register,
-    uint8_t* pRegData
+    void
     );
 
-LORA_STATUS _lora_write_register_IT
+// True if a completed DMA receive is waiting for lora_get_latest()
+bool lora_has_new_data
     (
-    uint8_t lora_register,
-    uint8_t data
+    void
     );
 
-LORA_STATUS _lora_write_IT
+// Copy out the latest completed DMA receive
+LORA_STATUS lora_get_latest
     (
-    uint8_t* data,
-    size_t   len
+    uint8_t* buffer_ptr,
+    uint8_t buffer_len,
+    uint8_t* num_bytes_received
+    );
+
+// Call from HAL_SPI_TxCpltCallback and HAL_SPI_TxRxCpltCallback for LORA_SPI
+void lora_process_async_cb
+    (
+    void
+    );
+
+// Call from HAL_SPI_ErrorCallback for LORA_SPI
+void lora_process_async_error_cb
+    (
+    void
+    );
+
+// Call from HAL_GPIO_EXTI_Callback on every DIO0 rising edge
+void lora_process_dio0_cb
+    (
+    void
     );
 
 #ifdef __cplusplus

@@ -11,7 +11,6 @@
 
 #include <stdint.h>
 #include "main.h"
-#include "telemetry.h"
 #include <string.h>
 #include "usb.h"
 HAL_StatusTypeDef mocked_return = HAL_OK; /* Default to "OK" return */
@@ -31,7 +30,6 @@ uint32_t mock_hal_tick = 0;
 uint32_t mock_hal_tick_step = 0;
 uint32_t mock_hal_delay_total = 0;
 uint32_t mock_gpio_write_count = 0;
-TELEMETRY_MESSAGE mock_telemetry_message;
 
 /* Copies SPI data into the test-accessible buffer (truncated to buffer size) */
 static void mock_spi_capture
@@ -76,6 +74,20 @@ void HAL_Delay
 mock_hal_delay_total += Delay;
 }
 
+void HAL_NVIC_DisableIRQ
+    (
+    IRQn_Type IRQn
+    )
+{
+}
+
+void HAL_NVIC_EnableIRQ
+    (
+    IRQn_Type IRQn
+    )
+{
+}
+
 uint32_t HAL_GetTick
     (
     void
@@ -103,7 +115,7 @@ if( mock_spi_tx_call_count == mock_spi_fail_tx_call )
 return mocked_return;
 }
 
-HAL_StatusTypeDef HAL_SPI_Transmit_IT
+HAL_StatusTypeDef HAL_SPI_Transmit_DMA
     (
     SPI_HandleTypeDef* hspi,
     const uint8_t*     pData,
@@ -149,7 +161,7 @@ if( mock_spi_rx_call_count == mock_spi_fail_rx_call )
 return mocked_return;
 }
 
-HAL_StatusTypeDef HAL_SPI_TransmitReceive_IT
+HAL_StatusTypeDef HAL_SPI_TransmitReceive_DMA
     (
     SPI_HandleTypeDef* hspi,
     const uint8_t*     pTxData,
@@ -198,17 +210,6 @@ USB_STATUS usb_receive
     )
 {
 return USB_OK;
-}
-
-void telemetry_get_next_message
-    (
-    TELEMETRY_MESSAGE* payload
-    )
-{
-if ( payload != NULL )
-    {
-    *payload = mock_telemetry_message;
-    }
 }
 
 /* Used to mock these functions */

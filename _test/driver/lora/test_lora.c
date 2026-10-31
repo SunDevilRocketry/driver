@@ -24,10 +24,10 @@ Project Includes
 #include "sdrtf_pub.h"
 #include "main.h"
 #include "lora.h"
+#include "math_sdr.h"
 
 // Allow mutation of static memory by including source files directly
 #include "lora.c"
-#include "lora_async.c"
 
 
 /*------------------------------------------------------------------------------
@@ -45,7 +45,6 @@ extern uint16_t mock_spi_tx_call_count;
 extern uint16_t mock_spi_rx_call_count;
 extern uint16_t mock_spi_fail_tx_call;
 extern uint16_t mock_spi_fail_rx_call;
-extern TELEMETRY_MESSAGE mock_telemetry_message;
 extern HAL_StatusTypeDef mocked_return;
 
 /*------------------------------------------------------------------------------
@@ -88,7 +87,6 @@ mocked_return = HAL_OK;
 memset( mock_spi_tx_buffer, 0, sizeof( mock_spi_tx_buffer ) );
 memset( mock_spi_tx_history, 0, sizeof( mock_spi_tx_history ) );
 memset( mock_spi_rx_data, 0, sizeof( mock_spi_rx_data ) );
-memset( &mock_telemetry_message, 0, sizeof( mock_telemetry_message ) );
 mock_spi_tx_size = 0;
 mock_spi_tx_history_size = 0;
 mock_spi_rx_offset = 0;
@@ -108,209 +106,6 @@ is_lora_configured = false;
 Procedures: Tests
 ------------------------------------------------------------------------------*/
 
-
-/**
- * @brief Test async transmission FSM
- */
-void test_async_tx
-	(
-	void
-	)
-{
-struct TEST_CASE {
-	const char* description;
-	LORA_TX_FSM_STATE starting_state;
-	LORA_FSM_EVENT update_cause;
-	uint8_t last_read_contents;
-	bool is_write;
-	uint8_t expected_rw_address;
-	uint8_t expected_first_write_byte;
-	LORA_TX_FSM_STATE expected_state;
-} TEST_CASE;
-
-struct TEST_CASE test_cases[] = {
-	{ "Blocking -> Status Check (Synchro)", LORA_TX_STATE_BLOCKING, LORA_FSM_EVENT_SYNCHRONOUS_UPDATE, 0x00, false, LORA_REG_OPERATION_MODE, 0x00, LORA_TX_STATE_STATUS_CHECK },
-	{ "Blocking -> Blocking (REG_RD)", LORA_TX_STATE_BLOCKING, LORA_FSM_EVENT_REG_READ_CPLT, 0x00, false, LORA_REG_OPERATION_MODE, 0x00, LORA_TX_STATE_BLOCKING },
-	{ "Status Check -> Getting Buf (REG_RD)", LORA_TX_STATE_STATUS_CHECK, LORA_FSM_EVENT_REG_READ_CPLT, 0x01, false, LORA_REG_FIFO_TX_BASE_ADDR, 0x00, LORA_TX_STATE_GETTING_BUF },
-	{ "Status Check -> Blocking (REG_RD)", LORA_TX_STATE_STATUS_CHECK, LORA_FSM_EVENT_REG_READ_CPLT, 0x03, true, LORA_REG_OPERATION_MODE, 0x01, LORA_TX_STATE_BLOCKING },
-	{ "Status Check -> Status Check (Synchro)", LORA_TX_STATE_STATUS_CHECK, LORA_FSM_EVENT_SYNCHRONOUS_UPDATE, 0x00, false, LORA_REG_OPERATION_MODE, 0x00, LORA_TX_STATE_STATUS_CHECK },
-	{ "Getting Buf -> Set TX Base (REG_RD)", LORA_TX_STATE_GETTING_BUF, LORA_FSM_EVENT_REG_READ_CPLT, 0xBB, true, LORA_REG_FIFO_SPI_POINTER, 0xBB, LORA_TX_STATE_SETTING_TX_BASE },
-	{ "Getting Buf -> Getting Buf (Synchro)", LORA_TX_STATE_GETTING_BUF, LORA_FSM_EVENT_SYNCHRONOUS_UPDATE, 0xBB, true, LORA_REG_FIFO_SPI_POINTER, 0xBB, LORA_TX_STATE_GETTING_BUF },
-	{ "Set TX Base -> Msg Len (REG_WRT)", LORA_TX_STATE_SETTING_TX_BASE, LORA_FSM_EVENT_WRITE_CPLT, 0xBB, true, LORA_REG_SIGNAL_TO_NOISE, TELEMETRY_MESSAGE_SIZE, LORA_TX_STATE_WRITING_MSG_LEN },
-	{ "Set TX Base -> Set TX Base (Synchro)", LORA_TX_STATE_SETTING_TX_BASE, LORA_FSM_EVENT_SYNCHRONOUS_UPDATE, 0xBB, true, LORA_REG_SIGNAL_TO_NOISE, 0xBB, LORA_TX_STATE_SETTING_TX_BASE },
-	{ "Msg Len -> Write Msg (REG_WRT)", LORA_TX_STATE_WRITING_MSG_LEN, LORA_FSM_EVENT_WRITE_CPLT, 0xCC, true, LORA_REG_FIFO_RW, 0xCC, LORA_TX_STATE_WRITING_MSG },
-	{ "Msg Len -> Msg Len (Synchro)", LORA_TX_STATE_WRITING_MSG_LEN, LORA_FSM_EVENT_SYNCHRONOUS_UPDATE, 0xBB, true, LORA_REG_FIFO_RW, 0xBB, LORA_TX_STATE_WRITING_MSG_LEN },
-	{ "Write Msg -> Pre-TX (REG_WRT)", LORA_TX_STATE_WRITING_MSG, LORA_FSM_EVENT_WRITE_CPLT, 0xBB, false, LORA_REG_OPERATION_MODE, 0xBB, LORA_TX_STATE_PRE_TX_STATUS_CHECK },
-	{ "Write Msg -> Write Msg (Synchro)", LORA_TX_STATE_WRITING_MSG, LORA_FSM_EVENT_SYNCHRONOUS_UPDATE, 0xBB, true, LORA_REG_FIFO_RW, 0xBB, LORA_TX_STATE_WRITING_MSG },
-	{ "Pre-TX -> Start TX (REG_RD)", LORA_TX_STATE_PRE_TX_STATUS_CHECK, LORA_FSM_EVENT_REG_READ_CPLT, 0x81, true, LORA_REG_OPERATION_MODE, 0x83, LORA_TX_STATE_STARTING_TRANSMISSION },
-	{ "Pre-TX -> Start TX (Synchro)", LORA_TX_STATE_PRE_TX_STATUS_CHECK, LORA_FSM_EVENT_SYNCHRONOUS_UPDATE, 0xBB, true, LORA_REG_OPERATION_MODE, 0xBB, LORA_TX_STATE_PRE_TX_STATUS_CHECK },
-	{ "Start TX -> TX (REG_WRT)", LORA_TX_STATE_STARTING_TRANSMISSION, LORA_FSM_EVENT_WRITE_CPLT, 0x81, false, LORA_REG_OPERATION_MODE, 0x83, LORA_TX_STATE_TRANSMITTING },
-	{ "Start TX -> Start TX (Synchro)", LORA_TX_STATE_STARTING_TRANSMISSION, LORA_FSM_EVENT_SYNCHRONOUS_UPDATE, 0xBB, true, LORA_REG_OPERATION_MODE, 0xBB, LORA_TX_STATE_STARTING_TRANSMISSION },
-	{ "TX -> Get Buf (REG_RD)", LORA_TX_STATE_TRANSMITTING, LORA_FSM_EVENT_REG_READ_CPLT, 0x81, false, LORA_REG_FIFO_TX_BASE_ADDR, 0xBB, LORA_TX_STATE_GETTING_BUF },
-	{ "TX -> TX (REG_RD)", LORA_TX_STATE_TRANSMITTING, LORA_FSM_EVENT_REG_READ_CPLT, 0x83, false, LORA_REG_OPERATION_MODE, 0xBB, LORA_TX_STATE_TRANSMITTING },
-	{ "TX -> TX (Synchro)", LORA_TX_STATE_TRANSMITTING, LORA_FSM_EVENT_SYNCHRONOUS_UPDATE, 0x83, false, LORA_REG_OPERATION_MODE, 0xBB, LORA_TX_STATE_TRANSMITTING },
-	{ "Robustness: Invalid -> Invalid", 0xCC, LORA_FSM_EVENT_SYNCHRONOUS_UPDATE, 0x83, false, LORA_REG_OPERATION_MODE, 0xBB, 0xCC },
-	};
-
-for( int i = 0; i < array_size( test_cases ); i++ )
-	{
-	TEST_begin_nested_case( test_cases[i].description );
-
-	/* Set up parameters */
-	memset( &mock_telemetry_message, 0xCC, TELEMETRY_MESSAGE_SIZE ); // reserved sentinel value for the message write
-	reset_test();
-	op_mode = LORA_ASYNC_TX;
-	tx_fsm = test_cases[i].starting_state;
-	register_contents[1] = test_cases[i].last_read_contents;
-
-	/* Call FUT */
-	lora_fsm_update( test_cases[i].update_cause );
-
-	/* Verify results */
-	if( test_cases[i].starting_state == test_cases[i].expected_state )
-		{
-		TEST_ASSERT_EQ_UINT( "Verify that the state was not updated", tx_fsm, test_cases[i].expected_state );
-		}
-	else
-		{
-		TEST_ASSERT_EQ_UINT( "Verify that the state was updated properly", tx_fsm, test_cases[i].expected_state );
-		
-		if( test_cases[i].is_write )
-			{
-			TEST_ASSERT_EQ_UINT( "Verify that the correct address was written", mock_spi_tx_buffer[0], test_cases[i].expected_rw_address | 0x80 );
-			if( test_cases[i].starting_state == LORA_TX_STATE_WRITING_MSG_LEN
-			 && test_cases[i].expected_state == LORA_TX_STATE_WRITING_MSG )
-				{
-				TEST_ASSERT_EQ_MEMORY( "Verify that the telemetry message was written", &(mock_spi_tx_buffer[1]), &mock_telemetry_message, TELEMETRY_MESSAGE_SIZE );
-				}
-			else
-				{
-				TEST_ASSERT_EQ_UINT( "Verify that the correct contents were written", mock_spi_tx_buffer[1], test_cases[i].expected_first_write_byte );		
-				}
-			}
-		else
-			{
-			TEST_ASSERT_EQ_UINT( "Verify that the correct address was read", mock_spi_tx_buffer[0], test_cases[i].expected_rw_address );
-			}
-		}
-
-	TEST_end_nested_case();
-	}
-
-/* Additional robustness case for top level function */
-TEST_begin_nested_case( "Robustness: State doesn't change if the op mode is invalid" );
-	{
-	/* Set up parameters */
-	reset_test();
-	op_mode = 0xCC;
-	tx_fsm = LORA_TX_STATE_WRITING_MSG;
-	
-	/* Call FUT */
-	lora_fsm_update( LORA_FSM_EVENT_WRITE_CPLT );
-
-	/* Verify that the opmode and fsm state have not changed */
-	TEST_ASSERT_EQ_UINT( "Verify that the mode was not changed.", op_mode, 0xCC );
-	TEST_ASSERT_EQ_UINT( "Verify that the FSM was not changed.", tx_fsm, LORA_TX_STATE_WRITING_MSG );
-	TEST_end_nested_case();
-	}
-
-} /* test_async_tx */
-
-
-/**
- * @brief Tests asynchronous mode select
- */
-void test_async_fsm_mode_select
-	(
-	void
-	)
-{
-TEST_begin_nested_case( "Case 1: Verify that the TX FSM is stopped if moved to the cancel mode." );
-	{
-	/* Set up test */
-	reset_test();
-	op_mode = LORA_ASYNC_TX;
-	tx_fsm = LORA_TX_STATE_WRITING_MSG_LEN;
-
-	/* Call FUT */
-	lora_fsm_set_mode( LORA_ASYNC_OFF );
-
-	/* Verify result */
-	TEST_ASSERT_EQ_UINT( "Verify that the mode was set to ASYNC_OFF", op_mode, LORA_ASYNC_OFF );
-	TEST_ASSERT_EQ_UINT( "Verify that the FSM was set to BLOCKING", tx_fsm, LORA_TX_STATE_BLOCKING );
-
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Case 2: Verify that the TX FSM is started if moved to the start mode." );
-	{
-	/* Set up test */
-	reset_test();
-	op_mode = LORA_ASYNC_OFF;
-	tx_fsm = 0xFF;
-
-	/* Call FUT */
-	lora_fsm_set_mode( LORA_ASYNC_TX );
-
-	/* Verify result */
-	TEST_ASSERT_EQ_UINT( "Verify that the mode was set to ASYNC_OFF", op_mode, LORA_ASYNC_TX );
-	TEST_ASSERT_EQ_UINT( "Verify that the FSM was set to BLOCKING (fsm started)", tx_fsm, LORA_TX_STATE_BLOCKING );
-
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Case 3: Verify that the function returns LORA_INVALID_CMD if the operation is unsupported (TX -> TX)." );
-	{
-	/* Set up test */
-	reset_test();
-	op_mode = LORA_ASYNC_TX;
-	tx_fsm = 0xFF;
-
-	/* Call FUT */
-	TEST_ASSERT_EQ_UINT( "Verify that the function returned invalid", lora_fsm_set_mode( LORA_ASYNC_TX ), LORA_INVALID_CMD );
-
-	/* Verify result */
-	TEST_ASSERT_EQ_UINT( "Verify that the mode was not changed.", op_mode, LORA_ASYNC_TX );
-	TEST_ASSERT_EQ_UINT( "Verify that the FSM was not changed.", tx_fsm, 0xFF );
-
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Case 4: Verify that the function returns LORA_INVALID_CMD if the operation is unsupported (OFF -> OFF)." );
-	{
-	/* Set up test */
-	reset_test();
-	op_mode = LORA_ASYNC_OFF;
-	tx_fsm = 0xFF;
-
-	/* Call FUT */
-	TEST_ASSERT_EQ_UINT( "Verify that the function returned invalid", lora_fsm_set_mode( LORA_ASYNC_OFF ), LORA_INVALID_CMD );
-
-	/* Verify result */
-	TEST_ASSERT_EQ_UINT( "Verify that the mode was not changed.", op_mode, LORA_ASYNC_OFF );
-	TEST_ASSERT_EQ_UINT( "Verify that the FSM was not changed.", tx_fsm, 0xFF );
-
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Case 5: Verify that the TX FSM is stopped if lora status has a fail." );
-	{
-	/* Set up test */
-	reset_test();
-	op_mode = LORA_ASYNC_TX;
-	tx_fsm = LORA_TX_STATE_WRITING_MSG_LEN;
-	lora_status = LORA_TRANSMIT_FAIL;
-
-	/* Call FUT */
-	lora_fsm_update( LORA_FSM_EVENT_WRITE_CPLT );
-
-	/* Verify result */
-	TEST_ASSERT_EQ_UINT( "Verify that the mode was set to ASYNC_OFF", op_mode, LORA_ASYNC_OFF );
-	TEST_ASSERT_EQ_UINT( "Verify that the FSM was set to BLOCKING", tx_fsm, LORA_TX_STATE_BLOCKING );
-
-	TEST_end_nested_case();
-	}
-}
 
 /**
  * @brief Tests LoRa initialization and configuration.
@@ -698,77 +493,6 @@ TEST_begin_nested_case( "Reset pulses the reset pin and waits 20 ms" );
 }
 
 /**
- * @brief Tests interrupt-driven LoRa register reads.
- */
-void test_lora_read_register_it
-	(
-	void
-	)
-{
-uint8_t it_read_buffer[2] = { 0 };
-
-TEST_begin_nested_case( "Interrupt-driven register read starts successfully and masks the address" );
-	{
-	reset_test();
-	mock_spi_rx_data[1] = 0x44;
-	TEST_ASSERT_EQ_UINT( "IT register read starts", _lora_read_register_IT( 0xC2, it_read_buffer ), LORA_OK );
-	TEST_ASSERT_EQ_UINT( "Read address has its write bit cleared", mock_spi_tx_buffer[0], 0x42 );
-	TEST_ASSERT_EQ_UINT( "Read transfer is two bytes", mock_spi_tx_size, 2 );
-	TEST_ASSERT_EQ_UINT( "Second read byte contains the register response", it_read_buffer[1], 0x44 );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Interrupt-driven register read does not start successfully." );
-	{
-	reset_test();
-	MOCK_HAL_Status_Return( 1 );
-	mock_spi_rx_data[1] = 0x44;
-	TEST_ASSERT_EQ_UINT( "IT register read reports the error", _lora_read_register_IT( 0xC2, it_read_buffer ), LORA_FAIL );
-	TEST_end_nested_case();
-	}
-}
-
-/**
- * @brief Tests interrupt-driven LoRa register writes.
- */
-void test_lora_write_register_it
-	(
-	void
-	)
-{
-TEST_begin_nested_case( "Interrupt-driven register write captures address and value" );
-	{
-	reset_test();
-	TEST_ASSERT_EQ_UINT( "IT register write starts", _lora_write_register_IT( 0x42, 0x12 ), LORA_OK );
-	TEST_ASSERT_EQ_UINT( "Write address has its write bit set", mock_spi_tx_buffer[0], 0xC2 );
-	TEST_ASSERT_EQ_UINT( "Write value is captured", mock_spi_tx_buffer[1], 0x12 );
-	TEST_end_nested_case();
-	}
-}
-
-/**
- * @brief Tests interrupt-driven raw LoRa writes.
- */
-void test_lora_write_it
-	(
-	void
-	)
-{
-uint8_t data[3] = { 0xA1, 0xB2, 0xC3 };
-
-TEST_begin_nested_case( "Interrupt-driven buffer write preserves the supplied bytes" );
-	{
-	reset_test();
-	TEST_ASSERT_EQ_UINT( "IT buffer write starts", _lora_write_IT( data, sizeof( data ) ), LORA_OK );
-	TEST_ASSERT_EQ_UINT( "Buffer length is captured", mock_spi_tx_size, sizeof( data ) );
-	TEST_ASSERT_EQ_MEMORY( "Buffer contents are captured", mock_spi_tx_buffer, data, sizeof( data ) );
-	MOCK_HAL_Status_Return( HAL_ERROR );
-	TEST_ASSERT_EQ_UINT( "IT write reports HAL errors", _lora_write_IT( data, sizeof( data ) ), LORA_FAIL );
-	TEST_end_nested_case();
-	}
-}
-
-/**
  * @brief Tests blocking reads from a LoRa register buffer.
  */
 void test_lora_read_register_buffer
@@ -851,6 +575,63 @@ TEST_begin_nested_case( "Register-buffer write reports payload transmit failure"
 }
 
 /**
+ * @brief Tests the DMA transmit lifecycle: start, key-up, TxDone, error.
+ */
+void test_lora_transmit_async
+	(
+	void
+	)
+{
+uint8_t payload[4] = { 0xDE, 0xAD, 0xBE, 0xEF };
+uint8_t dio0_txdone[2] = { LORA_REG_DIO_MAPPING_MODE_1 | 0x80, 0x40 };
+uint8_t dio0_rxdone[2] = { LORA_REG_DIO_MAPPING_MODE_1 | 0x80, 0x00 };
+uint8_t tx_mode[2]     = { LORA_REG_OPERATION_MODE | 0x80, 0x80 | LORA_TRANSMIT_MODE };
+
+TEST_begin_nested_case( "Transmit starts, remaps DIO0 to TxDone, and locks the bus" );
+	{
+	reset_test();
+	dma_busy = false;
+	dma_awaiting_txdone = false;
+	mock_spi_rx_data[0] = 0x80 | LORA_SLEEP_MODE; /* RegOpMode with the LoRa bit set */
+	TEST_ASSERT_EQ_UINT( "Transmit starts", lora_transmit_async( payload, sizeof( payload ) ), LORA_OK );
+	TEST_ASSERT_EQ_UINT( "DIO0 is mapped to TxDone", mock_spi_history_contains( dio0_txdone, 2 ), true );
+	TEST_ASSERT_EQ_MEMORY( "Payload is handed to DMA", mock_spi_tx_buffer, payload, sizeof( payload ) );
+	TEST_ASSERT_EQ_UINT( "Second transmit is rejected while busy", lora_transmit_async( payload, sizeof( payload ) ), LORA_BUSY );
+	TEST_end_nested_case();
+	}
+
+TEST_begin_nested_case( "DMA complete keys up TX; TxDone releases the bus and restores DIO0" );
+	{
+	mock_spi_tx_history_size = 0;
+	lora_process_async_cb();
+	TEST_ASSERT_EQ_UINT( "Transmit mode is written", mock_spi_history_contains( tx_mode, 2 ), true );
+	TEST_ASSERT_EQ_UINT( "Still busy until TxDone", lora_transmit_async( payload, sizeof( payload ) ), LORA_BUSY );
+	lora_process_dio0_cb();
+	TEST_ASSERT_EQ_UINT( "DIO0 is mapped back to RxDone", mock_spi_history_contains( dio0_rxdone, 2 ), true );
+	TEST_ASSERT_EQ_UINT( "Busy flag is released", dma_busy, false );
+	TEST_end_nested_case();
+	}
+
+TEST_begin_nested_case( "Zero-length payload is rejected" );
+	{
+	reset_test();
+	TEST_ASSERT_EQ_UINT( "Zero length is rejected", lora_transmit_async( payload, 0 ), LORA_BUFFER_UNDERSIZED );
+	TEST_end_nested_case();
+	}
+
+TEST_begin_nested_case( "DMA error releases the bus" );
+	{
+	reset_test();
+	mock_spi_rx_data[0] = 0x80 | LORA_SLEEP_MODE;
+	lora_transmit_async( payload, sizeof( payload ) );
+	lora_process_async_error_cb();
+	TEST_ASSERT_EQ_UINT( "Busy flag is released", dma_busy, false );
+	TEST_ASSERT_EQ_UINT( "Not waiting for TxDone", dma_awaiting_txdone, false );
+	TEST_end_nested_case();
+	}
+}
+
+/**
  * @brief Entry point for test
  * 
  * @return Exit status of test
@@ -865,20 +646,15 @@ Test Cases
 ------------------------------------------------------------------------------*/
 unit_test tests[] =
 	{
-	/* lora_async.c */
-	{ "async_tx", test_async_tx, "RQ.DRIVER.00007, RQ.DRIVER.00010" },
-	{ "async_fsm_mode_select", test_async_fsm_mode_select, "RQ.DRIVER.00010" },
 	/* lora.c */
 	{ "lora_init_configure", test_lora_init_configure, "RQ.DRIVER.00009" },
 	{ "lora_transmit", test_lora_transmit, "RQ.DRIVER.00007" },
 	{ "lora_receive", test_lora_receive, "RQ.DRIVER.00008" },
 	{ "lora_set_chip_mode", test_lora_set_chip_mode },
 	{ "lora_reset", test_lora_reset },
-	{ "lora_read_register_it", test_lora_read_register_it },
-	{ "lora_write_register_it", test_lora_write_register_it },
-	{ "lora_write_it", test_lora_write_it },
 	{ "lora_read_register_buffer", test_lora_read_register_buffer },
-	{ "lora_write_register_buffer", test_lora_write_register_buffer }
+	{ "lora_write_register_buffer", test_lora_write_register_buffer },
+	{ "lora_transmit_async", test_lora_transmit_async, "RQ.DRIVER.00007, RQ.DRIVER.00010" }
 	};
 
 /*------------------------------------------------------------------------------
