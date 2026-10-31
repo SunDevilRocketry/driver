@@ -43,10 +43,10 @@ extern "C" {
 #define LORA_IRQ_PAYLOAD_CRC_ERROR  ( 0x20U )
 #define LORA_IRQ_TX_DONE            ( 0x08U )
 
-/* RegVersion (0x42) read-back; SX1276 silicon reports 0x12 */
+/* RegVersion (0x42). 0x12 per SX1276, 0x11 per HopeRF datasheet. UNVERIFIED. */
 #define LORA_ID_VERSION_VAL         ( 0x12U )
 
-/* Full 256-byte FIFO; already a multiple of the 32-byte M7 cache line */
+/* Full 256-byte FIFO, already a multiple of the 32-byte M7 cache line */
 #define LORA_DMA_MAX_PAYLOAD_BYTES  ( 256U )
 #define LORA_DMA_BUF_BYTES_ALIGNED  ( ( LORA_DMA_MAX_PAYLOAD_BYTES + 31U ) & ~31U )
 
@@ -274,7 +274,7 @@ LORA_STATUS lora_probe_version
 
 /* DMA (non-blocking) */
 
-// Start a DMA transmit; NSS and the busy flag are released by the ISR callbacks
+// Start a DMA transmit. The ISR callbacks release NSS and the busy flag.
 LORA_STATUS lora_transmit_async
     (
     uint8_t* buffer_ptr,

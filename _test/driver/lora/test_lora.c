@@ -612,6 +612,58 @@ TEST_begin_nested_case( "DMA complete keys up TX; TxDone releases the bus and re
 	TEST_end_nested_case();
 	}
 
+TEST_begin_nested_case( "A missed TxDone times out, clears the IRQ flags, and frees the bus" );
+	{
+	uint8_t clear_irq[2] = { LORA_REG_IRQ_FLAGS | 0x80, 0xFF };
+	reset_test();
+	dma_busy = false;
+	dma_awaiting_txdone = false;
+	mock_spi_rx_data[0] = 0x80 | LORA_SLEEP_MODE;
+	lora_transmit_async( payload, sizeof( payload ) );
+	lora_process_async_cb(); /* keyed up, TxDone never arrives */
+	mock_hal_tick = txdone_deadline;
+	TEST_ASSERT_EQ_UINT( "Still busy at the deadline", lora_transmit_async( payload, sizeof( payload ) ), LORA_BUSY );
+	mock_hal_tick = txdone_deadline + 1;
+	mock_spi_tx_history_size = 0;
+	TEST_ASSERT_EQ_UINT( "Past the deadline reports a timeout", lora_transmit_async( payload, sizeof( payload ) ), LORA_TIMEOUT_FAIL );
+	TEST_ASSERT_EQ_UINT( "Stuck IRQ flags are cleared", mock_spi_history_contains( clear_irq, 2 ), true );
+	TEST_ASSERT_EQ_UINT( "Busy flag is released", dma_busy, false );
+	mock_spi_rx_offset = 0;
+	TEST_ASSERT_EQ_UINT( "The next transmit starts", lora_transmit_async( payload, sizeof( payload ) ), LORA_OK );
+	lora_process_async_error_cb();
+	TEST_end_nested_case();
+	}
+
+TEST_begin_nested_case( "A stalled TX DMA is aborted and the bus freed" );
+	{
+	extern uint16_t mock_spi_abort_calls;
+	reset_test();
+	mock_spi_abort_calls = 0;
+	dma_busy = false;
+	dma_awaiting_txdone = false;
+	mock_spi_rx_data[0] = 0x80 | LORA_SLEEP_MODE;
+	lora_transmit_async( payload, sizeof( payload ) ); /* DMA complete never arrives */
+	mock_hal_tick = txdone_deadline + 1;
+	mock_gpio_write_count = 0;
+	TEST_ASSERT_EQ_UINT( "Past the deadline reports a timeout", lora_transmit_async( payload, sizeof( payload ) ), LORA_TIMEOUT_FAIL );
+	TEST_ASSERT_EQ_UINT( "The SPI DMA is aborted", mock_spi_abort_calls, 1 );
+	TEST_ASSERT_EQ_UINT( "No DMA is left pending", dma_pending_op, LORA_DMA_OP_NONE );
+	TEST_ASSERT_EQ_UINT( "Busy flag is released", dma_busy, false );
+	TEST_end_nested_case();
+	}
+
+TEST_begin_nested_case( "TxDone timeout covers time on air with margin" );
+	{
+	symbol_time_us = 32768U; /* SF12 @ 125 kHz */
+	active_spread  = LORA_SPREAD_12;
+	/* datasheet ToA for 255 B at SF12/125k, worst case CR 4/8 with LDRO: about 14.03 s */
+	TEST_ASSERT_EQ_UINT( "255 B at SF12/125k waits longer than its time on air", txdone_timeout_ms( 255 ) > 14030U, true );
+	symbol_time_us = 1024U; /* SF8 @ 250 kHz */
+	active_spread  = LORA_SPREAD_8;
+	TEST_ASSERT_EQ_UINT( "Short packets get a short timeout", txdone_timeout_ms( 32 ) < 500U, true );
+	TEST_end_nested_case();
+	}
+
 TEST_begin_nested_case( "Zero-length payload is rejected" );
 	{
 	reset_test();

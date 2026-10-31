@@ -67,7 +67,7 @@
 static LORA_STATUS lora_rx_done = LORA_WAITING;
 static bool is_lora_configured = false;
 
-/* DMA payload buffers; the address byte is sent by polling first, NSS held low */
+/* DMA payload buffers. The address byte is sent by polling first, with NSS held low. */
 __ALIGNED(32) __attribute__((section(".dma_buffer")))
 static uint8_t dma_tx_buf[ LORA_DMA_BUF_BYTES_ALIGNED ];
 
@@ -89,11 +89,16 @@ static uint8_t     dma_rx_bytes[ 2 ];
 static uint8_t     dma_fill_idx = 0U;
 static LORA_DMA_OP dma_pending_op = LORA_DMA_OP_NONE;
 
-/* Shadow of RegOpMode so ISRs can change mode without a blocking read */
+/* Shadow of RegOpMode for ISR mode changes without a blocking read */
 static uint8_t opmode_cache = 0U;
 
 /* DIO0 means TxDone while this is set, RxDone otherwise */
-static bool dma_awaiting_txdone = false;
+static volatile bool dma_awaiting_txdone = false;
+
+/* Active SF and symbol time for the TxDone timeout. Defaults to SF12 @ 125 kHz. */
+static uint32_t symbol_time_us = 32768U;
+static uint8_t  active_spread  = LORA_SPREAD_12;
+static uint32_t txdone_deadline = 0U;
 
 /* Static Prototypes ---------------------------------------------------------*/
 
@@ -154,6 +159,11 @@ static LORA_STATUS isr_write_register
     (
     LORA_REGISTER_ADDR lora_register,
     uint8_t data
+    );
+
+static uint32_t txdone_timeout_ms
+    (
+    uint8_t payload_len
     );
 
 /* Procedures ----------------------------------------------------------------*/
@@ -244,7 +254,7 @@ else
     lora_status = LORA_OK;
     }
 
-/* reset and re-initialize; DIO0 is masked so mid-init edges aren't read as RxDone/TxDone */
+/* Reset and re-initialize with DIO0 masked */
 HAL_NVIC_DisableIRQ( LORA_IO0_EXTI_IRQn );
 lora_reset();
 HAL_Delay(10);
@@ -365,10 +375,13 @@ switch( lora_config_ptr->lora_bandwidth ) {
 
 /* Check legal compliance of frequency */
 if ( !( lora_config_ptr->lora_frequency * 1000 + ( bandwidth / 2 ) <= ISM_MAX_FREQ * 1000
-     && lora_config_ptr->lora_frequency * 1000 - ( bandwidth / 2 ) >= ISM_MIN_FREQ * 1000 ) ) 
+     && lora_config_ptr->lora_frequency * 1000 - ( bandwidth / 2 ) >= ISM_MIN_FREQ * 1000 ) )
     {
     return LORA_FAIL;
     }
+
+symbol_time_us = ( ( 1UL << lora_config_ptr->lora_spread ) * 1000000UL ) / bandwidth;
+active_spread  = lora_config_ptr->lora_spread;
 
 LORA_STATUS set_sleep_status = lora_set_chip_mode( LORA_SLEEP_MODE ); // Switch to sleep mode to enable LoRa bit (datasheeet page 102)
 // Get initial value of the operation mode register
@@ -468,7 +481,7 @@ LORA_STATUS lora_transmit
     uint8_t buffer_len
     )
 {
-/* Blocking TX/RX is planned to be removed in favor of the DMA API; until then, stay off the bus during DMA */
+/* Blocking TX/RX is planned for removal. Returns LORA_BUSY while DMA owns the bus. */
 if ( atomic_load( &dma_busy ) )
     {
     return LORA_BUSY;
@@ -538,7 +551,7 @@ LORA_STATUS lora_receive_ready
     void
     )
 {
-/* Planned to be removed with blocking TX/RX; would clear the IRQ flags the DMA RX path relies on */
+/* Planned for removal. Reading here clears the IRQ flags the DMA RX path uses. */
 if ( atomic_load( &dma_busy ) )
     {
     return LORA_BUSY;
@@ -704,12 +717,32 @@ if ( buffer_len == 0U )
     return LORA_BUFFER_UNDERSIZED;
     }
 
+/* Recover from a missed TxDone (lost edge, radio reset) or a stalled DMA */
+if ( ( dma_awaiting_txdone || dma_pending_op == LORA_DMA_OP_TX )
+  && (int32_t)( HAL_GetTick() - txdone_deadline ) > 0 )
+    {
+    if ( dma_pending_op == LORA_DMA_OP_TX )
+        {
+        /* Stops the DMA stream and returns the HAL handle from BUSY_TX to READY */
+        #ifndef EMULATOR /* emulator has no HAL_SPI_Abort shim yet */
+        HAL_SPI_Abort( &(LORA_SPI) );
+        #endif
+        HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
+        dma_pending_op = LORA_DMA_OP_NONE;
+        }
+    dma_awaiting_txdone = false;
+    write_register( LORA_REG_IRQ_FLAGS, 0xFF ); /* A TxDone left set holds DIO0 high */
+    atomic_store( &dma_busy, false );
+    return LORA_TIMEOUT_FAIL;
+    }
+
 if ( atomic_exchange( &dma_busy, true ) )
     {
     return LORA_BUSY;
     }
 
-/* FIFO can only be filled in standby (datasheet 4.1.6); DIO0 = TxDone needs Dio0Mapping 01 (Table 63) */
+/* FIFO fills only in standby (datasheet 4.1.6) */
+/* DIO0 is TxDone with Dio0Mapping 01 (Table 63) */
 if ( lora_set_chip_mode( LORA_STANDBY_MODE ) != LORA_OK
   || read_register( LORA_REG_FIFO_TX_BASE_ADDR, &tx_base_addr ) != LORA_OK
   || write_register( LORA_REG_FIFO_SPI_POINTER, tx_base_addr ) != LORA_OK
@@ -735,6 +768,7 @@ if ( spi_transmit_byte( LORA_REG_FIFO_RW | 0x80 ) != LORA_OK )
     }
 
 dma_pending_op = LORA_DMA_OP_TX;
+txdone_deadline = HAL_GetTick() + txdone_timeout_ms( buffer_len );
 
 if ( HAL_SPI_Transmit_DMA( &(LORA_SPI), dma_tx_buf, buffer_len ) != HAL_OK )
     {
@@ -887,8 +921,8 @@ return LORA_OK;
 /**
  * @brief DMA complete ISR handler for LORA_SPI.
  *
- * @note TX: the FIFO is loaded, so key up transmit; busy stays set until
- * TxDone. RX: publish the filled buffer row.
+ * @note TX: keys up transmit. Busy stays set until TxDone.
+ * RX: publishes the filled buffer row.
  */
 void lora_process_async_cb
     (
@@ -924,7 +958,7 @@ atomic_store( &dma_busy, false );
 /**
  * @brief DMA error ISR handler for LORA_SPI.
  *
- * @note Forces NSS high so a failed transfer can't hold the SPI bus.
+ * @note Forces NSS high and clears the busy and ready flags.
  */
 void lora_process_async_error_cb
     (
@@ -1273,6 +1307,28 @@ HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
 return ( status == HAL_OK ) ? LORA_OK : LORA_FAIL;
 
 } /* isr_write_register */
+
+
+/**
+ * @brief Upper bound on how long a transmit may wait for TxDone.
+ *
+ * @note Datasheet 4.1.1.7 time on air with every term rounded up: 8-symbol
+ * preamble + 4.25, explicit header, CR 4/8, low-data-rate optimize, then 2x.
+ *
+ * @param payload_len The payload length in bytes.
+ * @return The timeout in milliseconds.
+ */
+static uint32_t txdone_timeout_ms
+    (
+    uint8_t payload_len
+    )
+{
+uint32_t divisor  = 4U * ( active_spread - 2U );
+uint32_t symbols  = 13U + 8U + 8U * ( ( 8U * payload_len + 44U + divisor - 1U ) / divisor );
+
+return 2U * ( ( symbols * symbol_time_us ) / 1000U ) + 10U;
+
+} /* txdone_timeout_ms */
 
 /**
  * End of file

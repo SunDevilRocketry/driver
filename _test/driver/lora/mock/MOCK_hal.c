@@ -74,6 +74,17 @@ void HAL_Delay
 mock_hal_delay_total += Delay;
 }
 
+uint16_t mock_spi_abort_calls = 0;
+
+HAL_StatusTypeDef HAL_SPI_Abort
+    (
+    SPI_HandleTypeDef* hspi
+    )
+{
+mock_spi_abort_calls++;
+return HAL_OK;
+}
+
 void HAL_NVIC_DisableIRQ
     (
     IRQn_Type IRQn
