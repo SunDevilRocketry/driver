@@ -40,7 +40,6 @@
 
   ## Instructions:
   - Call lora_init or lora_configure to set up the modem
-  - Blocking: lora_transmit, lora_receive_ready, lora_receive
   - DMA: lora_transmit_async, lora_has_new_data, lora_get_latest
   ******************************************************************************
   @endverbatim
@@ -53,8 +52,6 @@
 #include "pindefs.h"
 
 #include "lora.h"
-
-#define LORA_BLOCKING_TX_TIMEOUT 50
 
 /* Cache maintenance only on cores with a D-cache (M7), not on x86 emulator or unit test builds */
 #if defined( __DCACHE_PRESENT ) && ( __DCACHE_PRESENT == 1U ) && !defined( EMULATOR ) && !defined( UNIT_TEST )
@@ -69,7 +66,6 @@
 #endif
 
 /* Globals -------------------------------------------------------------------*/
-static LORA_STATUS lora_rx_done = LORA_WAITING;
 static bool is_lora_configured = false;
 
 /* DMA payload buffers. The address byte is sent by polling first, with NSS held low. */
@@ -129,24 +125,10 @@ static LORA_STATUS read_register
     uint8_t* pRegData
     );
 
-static LORA_STATUS read_register_buffer
-    (
-    LORA_REGISTER_ADDR lora_register,
-    uint8_t* pRegData,
-    uint8_t buffer_len
-    );
-
 static LORA_STATUS write_register
     (
     LORA_REGISTER_ADDR lora_register,
     uint8_t data
-    );
-
-static LORA_STATUS write_register_buffer
-    (
-    LORA_REGISTER_ADDR lora_register,
-    uint8_t* data,
-    uint8_t buffer_len
     );
 
 static LORA_STATUS get_device_id
@@ -475,212 +457,6 @@ HAL_Delay(10);  // Wait for SX1278 to stabilize
 
 
 /**
- * @brief Transmit a packet (in blocking mode)
- * 
- * @param[in] buffer_ptr A pointer to the data to transmit
- * @param buffer_len The size of the buffer being transmitted
- * @return The status of the modem
- */
-LORA_STATUS lora_transmit
-    (
-    uint8_t* buffer_ptr,
-    uint8_t buffer_len
-    )
-{
-/* Blocking TX/RX is planned for removal. Returns LORA_BUSY while DMA owns the bus. */
-if ( atomic_load( &dma_busy ) )
-    {
-    return LORA_BUSY;
-    }
-
-// Mode request STAND-BY
-LORA_STATUS standby_status = lora_set_chip_mode(LORA_STANDBY_MODE);
-
-// Write data to LoRA FIFO
-uint8_t fifo_ptr_addr;
-LORA_STATUS tx_base_status = read_register(LORA_REG_FIFO_TX_BASE_ADDR, &fifo_ptr_addr);  // Access LoRA FIFO data buffer pointer
-if (tx_base_status + standby_status != LORA_OK){
-    // Error handler
-    // led_set_color(// led_RED);
-    return LORA_FAIL;
-}
-LORA_STATUS ptr_status = write_register(LORA_REG_FIFO_SPI_POINTER, fifo_ptr_addr); // Set fifo data pointer to TX base address
-if (ptr_status != LORA_OK){
-    // Error handler
-    // led_set_color(// led_RED);
-    return LORA_FAIL;
-}
-
-// Write buffer length to fifo_rw
-LORA_STATUS fifo_status = write_register(LORA_REG_SIGNAL_TO_NOISE, buffer_len);
-
-// Send byte to byte to the fifo buffer
-LORA_STATUS sendbyte_status = LORA_OK;
-
-sendbyte_status = write_register_buffer( LORA_REG_FIFO_RW, buffer_ptr, buffer_len );
-
-LORA_STATUS tmode_status = lora_set_chip_mode(LORA_TRANSMIT_MODE);
-
-uint8_t lora_op;
-LORA_STATUS regop_status = LORA_OK;
-uint32_t start_time = HAL_GetTick();
-while ( ( start_time + ( LORA_BLOCKING_TX_TIMEOUT * buffer_len ) ) > HAL_GetTick() )
-    {
-    regop_status = read_register(LORA_REG_OPERATION_MODE, &lora_op);
-    if ( ( ( lora_op & 0b111 ) == LORA_STANDBY_MODE )
-      || ( regop_status != LORA_OK ) ) 
-        {
-        break;
-        }
-    }
-
-if( fifo_status + tmode_status + regop_status + sendbyte_status == 0
- && ( start_time + ( LORA_BLOCKING_TX_TIMEOUT * buffer_len ) ) > HAL_GetTick() )
-    {
-    return LORA_OK;
-    }
-
-return LORA_FAIL;
-
-} /* lora_transmit */
-
-
-/**
- * @brief Check if a packet has been received
- * 
- * @retval LORA_READY if a packet is ready
- * @retval LORA_WAITING if waiting for the packet
- * @retval LORA_FAIL if the receive failed
- */
-LORA_STATUS lora_receive_ready
-    (
-    void
-    )
-{
-/* Planned for removal. Reading here clears the IRQ flags the DMA RX path uses. */
-if ( atomic_load( &dma_busy ) )
-    {
-    return LORA_BUSY;
-    }
-
-uint8_t mode;
-
-LORA_STATUS mode_check = read_register( LORA_REG_OPERATION_MODE, &mode );
-mode = mode & 0x07;
-
-if( mode_check == LORA_OK && mode == LORA_RX_CONTINUOUS_MODE ) {
-    uint8_t irq_flag;
-
-    LORA_STATUS irq_check = read_register(LORA_REG_IRQ_FLAGS, &irq_flag);
-
-    if( irq_check == LORA_OK ) {
-        write_register( LORA_REG_IRQ_FLAGS, irq_flag );
-        uint8_t rx_done = ( irq_flag & 0x40 ) == 0x40;
-
-        if( rx_done ) {
-            lora_rx_done = LORA_READY;
-            return LORA_READY;
-        } else {
-            lora_rx_done = LORA_WAITING;
-            return LORA_WAITING;
-        }
-    } else {
-        return LORA_FAIL;
-    }
-} else {
-    return LORA_FAIL;
-}
-}
-
-
-/**
- * @brief Receive a packet over LoRa
- * 
- * @param[in] buffer_ptr The buffer to receive into
- * @param buffer_len The length of the receive buffer
- * @param[out] num_bytes_received The actual number of bytes received
- * @return LORA_STATUS 
- */
-LORA_STATUS lora_receive
-    (
-    uint8_t* buffer_ptr,
-    uint8_t buffer_len,
-    uint8_t* num_bytes_received
-    )
-{
-/* Planned to be removed with blocking TX/RX */
-if ( atomic_load( &dma_busy ) )
-    {
-    return LORA_BUSY;
-    }
-
-if ( lora_rx_done == LORA_READY ){
-    // Write IRQ flags
-    uint8_t irq_flag;
-
-    LORA_STATUS irq_status2 = read_register(LORA_REG_IRQ_FLAGS, &irq_flag);
-    if( irq_status2 != LORA_OK )
-        {
-        return LORA_FAIL;
-        }
-    uint8_t crc_err = ( irq_flag & 0x20 ) == 0x20;
-
-    if (!crc_err){ // TODO make a fail happen for a CRC error
-        // Read received number of bytes
-        uint8_t num_bytes;
-        LORA_STATUS fifo2_status = read_register(LORA_REG_FIFO_RX_NUM_BYTES, &num_bytes);
-
-        // In case SPI operation fials
-        if( fifo2_status != LORA_OK ) {
-            return LORA_FAIL;
-        }
-
-        if (num_bytes > buffer_len)
-            {
-            return LORA_BUFFER_UNDERSIZED;
-            }
-
-        // Set lora fifo pointer to the RX base current address
-        uint8_t fifo_ptr_addr;
-        LORA_STATUS base_adr_status = read_register(LORA_REG_FIFO_RX_BASE_CUR_ADDR, &fifo_ptr_addr);  // Access LoRA FIFO data buffer pointer
-        if (base_adr_status != LORA_OK){
-            // Error handler
-            return LORA_FAIL;
-        }
-        LORA_STATUS ptr2_status = write_register(LORA_REG_FIFO_SPI_POINTER, fifo_ptr_addr); // Set fifo data pointer to TX base address
-        if (ptr2_status != LORA_OK){
-            // Error handler
-            return LORA_FAIL;
-        }
-        // Begin extracting payload
-        LORA_STATUS pld_xtr_status = LORA_OK;
-
-        /*
-        // Old Rx buffer read code
-        // TODO don't remove until burst read is confirmed working
-        for (int i = 0; i < num_bytes; i++){
-            uint8_t packet;
-            pld_xtr_status = read_register(LORA_REG_FIFO_RW, &packet);  // Access LoRA FIFO data buffer pointer
-            buffer_ptr[i] = packet;
-        } */
-
-        read_register_buffer( LORA_REG_FIFO_RW, buffer_ptr, num_bytes);
-
-        *num_bytes_received = num_bytes;
-        if (pld_xtr_status == LORA_OK ) {
-            return LORA_OK;
-        } else {
-            return LORA_FAIL;
-        }
-    }
-    return LORA_OK;
-} else if( lora_rx_done == LORA_WAITING ) {
-    return LORA_WAITING;
-}
-return LORA_FAIL;
-}
-
-/**
  * @brief Read RegVersion over SPI. Diagnostic only: no reset, no mode change.
  *
  * @param[out] version The raw register byte (expect LORA_ID_VERSION_VAL).
@@ -730,9 +506,7 @@ if ( ( dma_awaiting_txdone || dma_pending_op == LORA_DMA_OP_TX )
     if ( dma_pending_op == LORA_DMA_OP_TX )
         {
         /* Stops the DMA stream and returns the HAL handle from BUSY_TX to READY */
-        #ifndef EMULATOR /* emulator has no HAL_SPI_Abort shim yet */
         HAL_SPI_Abort( &(LORA_SPI) );
-        #endif
         HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
         dma_pending_op = LORA_DMA_OP_NONE;
         }
@@ -749,11 +523,12 @@ if ( atomic_exchange( &dma_busy, true ) )
 
 /* FIFO fills only in standby (datasheet 4.1.6) */
 /* DIO0 is TxDone with Dio0Mapping 01 (Table 63) */
+/* A TxDone left set holds DIO0 high */
 if ( lora_set_chip_mode( LORA_STANDBY_MODE ) != LORA_OK
   || read_register( LORA_REG_FIFO_TX_BASE_ADDR, &tx_base_addr ) != LORA_OK
   || write_register( LORA_REG_FIFO_SPI_POINTER, tx_base_addr ) != LORA_OK
   || write_register( LORA_REG_SIGNAL_TO_NOISE, buffer_len ) != LORA_OK /* 0x22 = RegPayloadLength */
-  || write_register( LORA_REG_IRQ_FLAGS, LORA_IRQ_TX_DONE ) != LORA_OK /* A stale TxDone would raise DIO0 at the mapping write */
+  || write_register( LORA_REG_IRQ_FLAGS, LORA_IRQ_TX_DONE ) != LORA_OK
   || write_register( LORA_REG_DIO_MAPPING_MODE_1, 0x40U ) != LORA_OK )
     {
     atomic_store( &dma_busy, false );
@@ -1141,43 +916,6 @@ return LORA_FAIL;
 
 
 /**
- * @brief Read a buffer from an internal LoRa register.
- * 
- * @param lora_register 
- * @param pRegData 
- * @param buffer_len 
- * @return LORA_STATUS 
- */
-static LORA_STATUS read_register_buffer
-    (
-    LORA_REGISTER_ADDR lora_register,
-    uint8_t* pRegData,
-    uint8_t buffer_len
-    )
-{
-/* Local variables */
-LORA_STATUS status;
-HAL_StatusTypeDef hal_status;
-
-/* Perform both steps in sequence so we deassert NSS no matter what */
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
-
-status = spi_transmit_byte( (lora_register & 0x7F) );
-hal_status = HAL_SPI_Receive( &(LORA_SPI), pRegData, buffer_len, LORA_TIMEOUT );
-
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
-
-if( hal_status != HAL_OK || status != LORA_OK )
-    {
-    return LORA_FAIL;
-    }
-
-return LORA_OK;
-
-} /* read_register_buffer */
-
-
-/**
  * @brief Write a LoRa modem register.
  * 
  * @param lora_register The register to write to
@@ -1207,44 +945,6 @@ return LORA_FAIL;
 
 } /* write_register */
 
-
-/**
- * @brief Write a buffer to a register.
- * 
- * @param lora_register The register to write to.
- * @param data A buffer to write
- * @param buffer_len The length of the buffer
- * @return LORA_STATUS The status of the LoRa modem.
- */
-static LORA_STATUS write_register_buffer
-    (
-    LORA_REGISTER_ADDR lora_register,
-    uint8_t* data,
-    uint8_t buffer_len
-    )
-{
-/* Local Variables */
-HAL_StatusTypeDef status = HAL_OK;
-
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
-
-/* Apply the write bitmask before transmitting */
-uint8_t dest_reg = (lora_register | 0x80);
-status |= HAL_SPI_Transmit( &(LORA_SPI), &dest_reg, 1, LORA_TIMEOUT);
-
-/* Write buffer */
-status |= HAL_SPI_Transmit( &(LORA_SPI), data, buffer_len, LORA_TIMEOUT);
-
-HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
-
-if ( status != HAL_OK )
-    {
-    return LORA_FAIL;
-    }
-
-return LORA_OK;
-
-} /* write_register_buffer */
 
 /**
  * @brief Helper to retrieve the device ID during initialization.

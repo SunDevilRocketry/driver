@@ -43,7 +43,7 @@ extern "C" {
 #define LORA_IRQ_PAYLOAD_CRC_ERROR  ( 0x20U )
 #define LORA_IRQ_TX_DONE            ( 0x08U )
 
-/* RegVersion (0x42). 0x12 per SX1276, 0x11 per HopeRF datasheet. UNVERIFIED. */
+/* RegVersion (0x42). Real RFM95W modules read 0x12. The HopeRF datasheet lists 0x11. */
 #define LORA_ID_VERSION_VAL         ( 0x12U )
 
 /* Full 256-byte FIFO, already a multiple of the 32-byte M7 cache line */
@@ -128,7 +128,6 @@ typedef enum _LORA_STATUS {
    LORA_RECEIVE_FAIL,
    LORA_TIMEOUT_FAIL,
    LORA_BUFFER_UNDERSIZED,
-   LORA_READY,
    LORA_WAITING,
    LORA_USING_DEFAULTS,
    LORA_INVALID_CMD,
@@ -243,27 +242,6 @@ LORA_STATUS lora_cmd_execute
 LORA_STATUS lora_configure
     (
     LORA_PRESET* preset
-    );
-
-// Make LoRa radio transmitter
-LORA_STATUS lora_transmit
-    (
-    uint8_t* buffer_ptr,
-    uint8_t buffer_len
-    );
-
-// Check if modem has received packet
-LORA_STATUS lora_receive_ready
-    (
-    void
-    );
-
-// Read received packet if available
-LORA_STATUS lora_receive
-    (
-    uint8_t* buffer_ptr,
-    uint8_t buffer_len,
-    uint8_t* num_bytes_received
     );
 
 // Read RegVersion over SPI without reset or mode change (diagnostic)

@@ -301,153 +301,6 @@ TEST_begin_nested_case( "Configure reports fail on bad read during init" );
 }
 
 /**
- * @brief Tests blocking LoRa transmission.
- */
-void test_lora_transmit
-	(
-	void
-	)
-{
-uint8_t rx_values[MOCK_SPI_BUFFER_SIZE] = { 0 };
-uint8_t data[3] = { 0xA1, 0xB2, 0xC3 };
-
-TEST_begin_nested_case( "Transmit sends payload and returns success" );
-	{
-	reset_test();
-	rx_values[0] = 0x80; /* Existing operation mode */
-	rx_values[1] = 0x33; /* TX FIFO base */
-	rx_values[2] = 0x81; /* Existing operation mode */
-	rx_values[3] = 0x81; /* TX complete: standby */
-	memcpy( mock_spi_rx_data, rx_values, sizeof( rx_values ) );
-	mock_hal_tick_step = 10;
-	TEST_ASSERT_EQ_UINT( "Packet transmission succeeds", lora_transmit( data, sizeof( data ) ), LORA_OK );
-	TEST_ASSERT_EQ_UINT( "Transmit history includes the payload bytes", mock_spi_history_contains( data, sizeof( data ) ), true );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Transmit returns failure when SPI setup fails" );
-	{
-	reset_test();
-	MOCK_HAL_Status_Return( HAL_ERROR );
-	TEST_ASSERT_EQ_UINT( "SPI failure aborts transmission", lora_transmit( data, sizeof( data ) ), LORA_FAIL );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Transmit returns failure when SPI transmit fails" );
-	{
-	reset_test();
-	mock_spi_fail_tx_call = 5; /* Fail the payload-length register write */
-	MOCK_HAL_Status_Return( HAL_OK );
-	TEST_ASSERT_EQ_UINT( "SPI failure aborts transmission", lora_transmit( data, sizeof( data ) ), LORA_FAIL );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Transmit times out during normal tick progression" );
-	{
-	reset_test();
-	rx_values[0] = 0x80; /* Existing operation mode */
-	rx_values[1] = 0x33; /* TX FIFO base */
-	rx_values[2] = 0x81; /* Existing operation mode */
-	rx_values[3] = 0x83; /* Still transmitting */
-	rx_values[4] = 0x83; /* Still transmitting */
-	memcpy( mock_spi_rx_data, rx_values, sizeof( rx_values ) );
-	mock_hal_tick = 0;
-	mock_hal_tick_step = 50;
-	TEST_ASSERT_EQ_UINT( "Transmission fails after its timeout", lora_transmit( data, sizeof( data ) ), LORA_FAIL );
-	TEST_ASSERT_EQ_UINT( "Polling continues until the timeout", mock_spi_rx_call_count, 5 );
-	TEST_end_nested_case();
-	}
-}
-
-/**
- * @brief Tests LoRa packet readiness and receive handling.
- */
-void test_lora_receive
-	(
-	void
-	)
-{
-uint8_t data[3] = { 0xA1, 0xB2, 0xC3 };
-uint8_t received[4] = { 0 };
-uint8_t received_count = 0;
-
-TEST_begin_nested_case( "Receive-ready reports packets only in continuous RX mode" );
-	{
-	reset_test();
-	mock_spi_rx_data[0] = LORA_RX_CONTINUOUS_MODE;
-	mock_spi_rx_data[1] = 0x40;
-	TEST_ASSERT_EQ_UINT( "RX-done IRQ is reported as ready", lora_receive_ready(), LORA_READY );
-
-	reset_test();
-	mock_spi_rx_data[0] = LORA_STANDBY_MODE;
-	TEST_ASSERT_EQ_UINT( "Non-RX mode is rejected", lora_receive_ready(), LORA_FAIL );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Receive-ready reports waiting when no RX-done IRQ is set" );
-	{
-	reset_test();
-	mock_spi_rx_data[0] = LORA_RX_CONTINUOUS_MODE;
-	mock_spi_rx_data[1] = 0x00;
-	TEST_ASSERT_EQ_UINT( "No RX-done IRQ reports waiting", lora_receive_ready(), LORA_WAITING );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Receive returns waiting until RX data is ready" );
-	{
-	reset_test();
-	TEST_ASSERT_EQ_UINT( "Receive reports waiting", lora_receive( received, sizeof( received ), &received_count ), LORA_WAITING );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Receive returns undersized when the caller buffer is too small" );
-	{
-	reset_test();
-	mock_spi_rx_data[0] = LORA_RX_CONTINUOUS_MODE;
-	mock_spi_rx_data[1] = 0x40;
-	(void)lora_receive_ready();
-	mock_spi_rx_offset = 0;
-	mock_spi_rx_data[0] = 0x00; /* IRQ flags */
-	mock_spi_rx_data[1] = 0x05; /* Five bytes received */
-	TEST_ASSERT_EQ_UINT( "Small buffer is rejected", lora_receive( received, sizeof( received ), &received_count ), LORA_BUFFER_UNDERSIZED );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Receive preserves the driver's current CRC-error behavior" );
-	{
-	reset_test();
-	mock_spi_rx_data[0] = LORA_RX_CONTINUOUS_MODE;
-	mock_spi_rx_data[1] = 0x40;
-	(void)lora_receive_ready();
-	mock_spi_rx_offset = 0;
-	mock_spi_rx_data[0] = 0x20; /* IRQ flags with CRC error */
-	received_count = 0xEE;
-	TEST_ASSERT_EQ_UINT( "CRC error currently returns success", lora_receive( received, sizeof( received ), &received_count ), LORA_OK );
-	TEST_ASSERT_EQ_UINT( "CRC error does not update the received count", received_count, 0xEE );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Receive reads packet bytes and returns their count" );
-	{
-	reset_test();
-	mock_spi_rx_data[0] = LORA_RX_CONTINUOUS_MODE;
-	mock_spi_rx_data[1] = 0x40;
-	(void)lora_receive_ready();
-	mock_spi_rx_offset = 0;
-	mock_spi_rx_data[0] = 0x00; /* IRQ flags */
-	mock_spi_rx_data[1] = 3;    /* Number of bytes */
-	mock_spi_rx_data[2] = 0x22; /* RX FIFO base */
-	mock_spi_rx_data[3] = 0xA1;
-	mock_spi_rx_data[4] = 0xB2;
-	mock_spi_rx_data[5] = 0xC3;
-	TEST_ASSERT_EQ_UINT( "Packet receive succeeds", lora_receive( received, sizeof( received ), &received_count ), LORA_OK );
-	TEST_ASSERT_EQ_UINT( "Received byte count is returned", received_count, 3 );
-	TEST_ASSERT_EQ_MEMORY( "Packet data is copied into caller buffer", received, data, sizeof( data ) );
-	TEST_end_nested_case();
-	}
-}
-
-/**
  * @brief Tests changing the LoRa chip operation mode.
  */
 void test_lora_set_chip_mode
@@ -488,88 +341,6 @@ TEST_begin_nested_case( "Reset pulses the reset pin and waits 20 ms" );
 	lora_reset();
 	TEST_ASSERT_EQ_UINT( "Reset drives GPIO twice", mock_gpio_write_count, 2 );
 	TEST_ASSERT_EQ_UINT( "Reset waits for 20 ms total", mock_hal_delay_total, 20 );
-	TEST_end_nested_case();
-	}
-}
-
-/**
- * @brief Tests blocking reads from a LoRa register buffer.
- */
-void test_lora_read_register_buffer
-	(
-	void
-	)
-{
-uint8_t data[3] = { 0 };
-
-TEST_begin_nested_case( "Register-buffer read captures data and masks the address" );
-	{
-	reset_test();
-	mock_spi_rx_data[0] = 0x11;
-	mock_spi_rx_data[1] = 0x22;
-	mock_spi_rx_data[2] = 0x33;
-	TEST_ASSERT_EQ_UINT( "Register-buffer read succeeds", read_register_buffer( LORA_REG_FIFO_RW, data, sizeof( data ) ), LORA_OK );
-	TEST_ASSERT_EQ_UINT( "Read address is transmitted", mock_spi_tx_buffer[0], LORA_REG_FIFO_RW );
-	TEST_ASSERT_EQ_MEMORY( "Read bytes are copied to the destination", data, mock_spi_rx_data, sizeof( data ) );
-	TEST_ASSERT_EQ_UINT( "Chip select is asserted and released", mock_gpio_write_count, 2 );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Register-buffer read reports transmit failure" );
-	{
-	reset_test();
-	mock_spi_fail_tx_call = 1;
-	TEST_ASSERT_EQ_UINT( "Transmit failure is reported", read_register_buffer( LORA_REG_FIFO_RW, data, sizeof( data ) ), LORA_FAIL );
-	TEST_ASSERT_EQ_UINT( "Chip select is released after transmit failure", mock_gpio_write_count, 2 );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Register-buffer read reports receive failure" );
-	{
-	reset_test();
-	mock_spi_fail_rx_call = 1;
-	TEST_ASSERT_EQ_UINT( "Receive failure is reported", read_register_buffer( LORA_REG_FIFO_RW, data, sizeof( data ) ), LORA_FAIL );
-	TEST_ASSERT_EQ_UINT( "Chip select is released after receive failure", mock_gpio_write_count, 2 );
-	TEST_end_nested_case();
-	}
-}
-
-/**
- * @brief Tests blocking writes to a LoRa register buffer.
- */
-void test_lora_write_register_buffer
-	(
-	void
-	)
-{
-uint8_t data[3] = { 0xA1, 0xB2, 0xC3 };
-uint8_t expected[sizeof( data ) + 1] = { LORA_REG_FIFO_RW | 0x80, 0xA1, 0xB2, 0xC3 };
-
-TEST_begin_nested_case( "Register-buffer write sends address and payload" );
-	{
-	reset_test();
-	TEST_ASSERT_EQ_UINT( "Register-buffer write succeeds", write_register_buffer( LORA_REG_FIFO_RW, data, sizeof( data ) ), LORA_OK );
-	TEST_ASSERT_EQ_UINT( "Register address and payload are in history", mock_spi_history_contains( expected, sizeof( expected ) ), true );
-	TEST_ASSERT_EQ_UINT( "Both transfers are sent", mock_spi_tx_call_count, 2 );
-	TEST_ASSERT_EQ_UINT( "Chip select is asserted and released", mock_gpio_write_count, 2 );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Register-buffer write reports first transmit failure" );
-	{
-	reset_test();
-	mock_spi_fail_tx_call = 1;
-	TEST_ASSERT_EQ_UINT( "First transmit failure is reported", write_register_buffer( LORA_REG_FIFO_RW, data, sizeof( data ) ), LORA_FAIL );
-	TEST_ASSERT_EQ_UINT( "Chip select is released after failure", mock_gpio_write_count, 2 );
-	TEST_end_nested_case();
-	}
-
-TEST_begin_nested_case( "Register-buffer write reports payload transmit failure" );
-	{
-	reset_test();
-	mock_spi_fail_tx_call = 2;
-	TEST_ASSERT_EQ_UINT( "Payload transmit failure is reported", write_register_buffer( LORA_REG_FIFO_RW, data, sizeof( data ) ), LORA_FAIL );
-	TEST_ASSERT_EQ_UINT( "Chip select is released after failure", mock_gpio_write_count, 2 );
 	TEST_end_nested_case();
 	}
 }
@@ -684,6 +455,55 @@ TEST_begin_nested_case( "DMA error releases the bus" );
 }
 
 /**
+ * @brief Tests the DMA receive path: RxDone, FIFO read over DMA, publish, CRC drop.
+ */
+void test_lora_receive_async
+	(
+	void
+	)
+{
+uint8_t packet[3] = { 0xA1, 0xB2, 0xC3 };
+uint8_t out[8];
+uint8_t got = 0;
+
+TEST_begin_nested_case( "RxDone reads the FIFO over DMA and publishes the packet" );
+	{
+	reset_test();
+	dma_busy = false;
+	dma_awaiting_txdone = false;
+	atomic_store( &dma_ready, false );
+	mock_spi_rx_data[0] = 0x00;             /* RegFifoRxCurrentAddr */
+	mock_spi_rx_data[1] = sizeof( packet ); /* RegRxNbBytes */
+	mock_spi_rx_data[2] = 0x40;             /* RegIrqFlags: RxDone */
+	memcpy( &mock_spi_rx_data[3], packet, sizeof( packet ) );
+	lora_process_dio0_cb();
+	TEST_ASSERT_EQ_UINT( "Not ready until the DMA completes", lora_has_new_data(), false );
+	lora_process_async_cb();
+	TEST_ASSERT_EQ_UINT( "Packet is ready", lora_has_new_data(), true );
+	TEST_ASSERT_EQ_UINT( "Bus is released", dma_busy, false );
+	TEST_ASSERT_EQ_UINT( "Read succeeds", lora_get_latest( out, sizeof( out ), &got ), LORA_OK );
+	TEST_ASSERT_EQ_MEMORY( "Payload matches the FIFO", out, packet, sizeof( packet ) );
+	TEST_end_nested_case();
+	}
+
+TEST_begin_nested_case( "A payload CRC error is dropped without a DMA read" );
+	{
+	reset_test();
+	dma_busy = false;
+	dma_awaiting_txdone = false;
+	atomic_store( &dma_ready, false );
+	mock_spi_rx_data[0] = 0x00;
+	mock_spi_rx_data[1] = sizeof( packet );
+	mock_spi_rx_data[2] = 0x40 | LORA_IRQ_PAYLOAD_CRC_ERROR;
+	TEST_ASSERT_EQ_UINT( "Bad CRC is reported", lora_request_receive_async(), LORA_RECEIVE_FAIL );
+	TEST_ASSERT_EQ_UINT( "No DMA read is started", dma_pending_op, LORA_DMA_OP_NONE );
+	TEST_ASSERT_EQ_UINT( "Bus is released", dma_busy, false );
+	TEST_ASSERT_EQ_UINT( "Nothing is published", lora_has_new_data(), false );
+	TEST_end_nested_case();
+	}
+}
+
+/**
  * @brief Tests reading a completed DMA receive out of the double buffer.
  */
 void test_lora_get_latest
@@ -744,13 +564,10 @@ unit_test tests[] =
 	{
 	/* lora.c */
 	{ "lora_init_configure", test_lora_init_configure, "RQ.DRIVER.00009" },
-	{ "lora_transmit", test_lora_transmit, "RQ.DRIVER.00007" },
-	{ "lora_receive", test_lora_receive, "RQ.DRIVER.00008" },
 	{ "lora_set_chip_mode", test_lora_set_chip_mode },
 	{ "lora_reset", test_lora_reset },
-	{ "lora_read_register_buffer", test_lora_read_register_buffer },
-	{ "lora_write_register_buffer", test_lora_write_register_buffer },
 	{ "lora_transmit_async", test_lora_transmit_async, "RQ.DRIVER.00007, RQ.DRIVER.00010" },
+	{ "lora_receive_async", test_lora_receive_async, "RQ.DRIVER.00008" },
 	{ "lora_get_latest", test_lora_get_latest, "RQ.DRIVER.00008" }
 	};
 
