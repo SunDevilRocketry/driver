@@ -684,6 +684,50 @@ TEST_begin_nested_case( "DMA error releases the bus" );
 }
 
 /**
+ * @brief Tests reading a completed DMA receive out of the double buffer.
+ */
+void test_lora_get_latest
+	(
+	void
+	)
+{
+uint8_t packet[3] = { 0x11, 0x22, 0x33 };
+uint8_t out[8];
+uint8_t got;
+
+TEST_begin_nested_case( "Nothing ready reports waiting" );
+	{
+	atomic_store( &dma_ready, false );
+	TEST_ASSERT_EQ_UINT( "No data is waiting", lora_get_latest( out, sizeof( out ), &got ), LORA_WAITING );
+	TEST_end_nested_case();
+	}
+
+TEST_begin_nested_case( "A ready packet is copied out and consumed" );
+	{
+	memcpy( dma_rx_buf[1], packet, sizeof( packet ) );
+	dma_rx_bytes[1] = sizeof( packet );
+	dma_ready_idx = 1;
+	atomic_store( &dma_ready, true );
+	got = 0;
+	TEST_ASSERT_EQ_UINT( "Read succeeds", lora_get_latest( out, sizeof( out ), &got ), LORA_OK );
+	TEST_ASSERT_EQ_MEMORY( "The published row is copied", out, packet, sizeof( packet ) );
+	TEST_ASSERT_EQ_UINT( "Length is reported", got, sizeof( packet ) );
+	TEST_ASSERT_EQ_UINT( "The packet is consumed", lora_has_new_data(), false );
+	TEST_end_nested_case();
+	}
+
+TEST_begin_nested_case( "An undersized buffer leaves the packet ready" );
+	{
+	atomic_store( &dma_ready, true );
+	got = 0;
+	TEST_ASSERT_EQ_UINT( "Undersized buffer is rejected", lora_get_latest( out, 2, &got ), LORA_BUFFER_UNDERSIZED );
+	TEST_ASSERT_EQ_UINT( "Length is not reported", got, 0 );
+	TEST_ASSERT_EQ_UINT( "The packet is still ready", lora_has_new_data(), true );
+	TEST_end_nested_case();
+	}
+}
+
+/**
  * @brief Entry point for test
  * 
  * @return Exit status of test
@@ -706,7 +750,8 @@ unit_test tests[] =
 	{ "lora_reset", test_lora_reset },
 	{ "lora_read_register_buffer", test_lora_read_register_buffer },
 	{ "lora_write_register_buffer", test_lora_write_register_buffer },
-	{ "lora_transmit_async", test_lora_transmit_async, "RQ.DRIVER.00007, RQ.DRIVER.00010" }
+	{ "lora_transmit_async", test_lora_transmit_async, "RQ.DRIVER.00007, RQ.DRIVER.00010" },
+	{ "lora_get_latest", test_lora_get_latest, "RQ.DRIVER.00008" }
 	};
 
 /*------------------------------------------------------------------------------

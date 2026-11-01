@@ -904,23 +904,33 @@ if ( !atomic_load( &dma_ready ) )
     return LORA_WAITING;
     }
 
+/* Prevents clearing a newer packet if DMA finishes mid-operation. */
+#if !defined( EMULATOR ) && !defined( UNIT_TEST )
+uint32_t primask = __get_PRIMASK();
+__disable_irq();
+#endif
+
 uint8_t idx = dma_ready_idx;
 uint8_t rx_bytes = dma_rx_bytes[ idx ];
+LORA_STATUS status = LORA_BUFFER_UNDERSIZED;
 
-if ( rx_bytes > buffer_len )
+if ( rx_bytes <= buffer_len )
     {
-    return LORA_BUFFER_UNDERSIZED;
+    memcpy( buffer_ptr, dma_rx_buf[ idx ], rx_bytes );
+    atomic_store( &dma_ready, false );
+    status = LORA_OK;
     }
 
-memcpy( buffer_ptr, dma_rx_buf[ idx ], rx_bytes );
-atomic_store( &dma_ready, false );
+#if !defined( EMULATOR ) && !defined( UNIT_TEST )
+__set_PRIMASK( primask );
+#endif
 
-if ( num_bytes_received != NULL )
+if ( status == LORA_OK && num_bytes_received != NULL )
     {
     *num_bytes_received = rx_bytes;
     }
 
-return LORA_OK;
+return status;
 
 } /* lora_get_latest */
 
