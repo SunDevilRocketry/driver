@@ -28,6 +28,10 @@
   ******************************************************************************
   */
 
+#ifdef EMULATOR
+#include "emulator.h"
+#endif
+
 
 /* Transmits a specified number of bytes over USB */
 USB_STATUS usb_transmit
@@ -207,11 +211,14 @@ bool usb_detect( void )
 /* Flushes pending data from the receive buffer */
 void usb_flush( void )
 {   /* ==================== API implementation =================== */
-
+#ifndef EMULATOR
     /* Cycle receive register until no data remains */
     while ( __HAL_UART_GET_FLAG( &( USB_HUART ), UART_FLAG_RXNE ) ){
         __HAL_UART_FLUSH_DRREGISTER( &( USB_HUART ) );
     }
+#else
+emulator_flush_serial( FC_SERIAL_PORT );
+#endif
 
 } /* usb_flush */
 
