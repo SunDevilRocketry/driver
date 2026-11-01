@@ -138,11 +138,10 @@ static IMU_STATUS read_mag_regs_IT
 /** @brief Convert IMU data to usable format */
 static void imu_conv
 	(
+    const IMU_OFFSET* calibration_data,
 	IMU_RAW* imu_raw,
     VECTOR_3F* accel,
-    VECTOR_3F  accel_bias,
     VECTOR_3F* gyro,
-    VECTOR_3F  gyro_bias,
     VECTOR_3F* mag
 	);
 
@@ -1121,21 +1120,18 @@ return IMU_FAIL;
 
 /**
   * @brief Converts raw IMU readings into calibrated, remapped sensor data.
-  *
+  * @param[in] calibration_data Calibration offsets for IMU
   * @param[in] imu_raw Raw IMU readouts.
   * @param[out]  accel Destination vector for acceleration data
-  * @param[in]  accel_bias Offset vector for acceleration data
   * @param[out]  gyro  Destination vector for gyro data
-  * @param[in]  gyro_bias Offset vector for gyro data
   * @param[out]  mag   Destination vector for mag data
   */
 static void imu_conv
 	(
+    const IMU_OFFSET* calibration_data,
 	IMU_RAW* imu_raw,
     VECTOR_3F* accel,
-    VECTOR_3F  accel_bias,
     VECTOR_3F* gyro,
-    VECTOR_3F  gyro_bias,
     VECTOR_3F* mag
 	)
 {
@@ -1144,17 +1140,15 @@ accel->x = imu_raw->accel_x * ((2.0f * 16.0f * GRAVITY ) / UINT16_MAX);
 accel->y = imu_raw->accel_y * ((2.0f * 16.0f * GRAVITY ) / UINT16_MAX);
 accel->z = imu_raw->accel_z * ((2.0f * 16.0f * GRAVITY ) / UINT16_MAX);
 
-(void)accel_bias;
-
 /* Convert raw gyroscope values to deg/s and remap axes */
 gyro->x = imu_raw->gyro_x / (UINT16_MAX / ( 2.0f * 2000.0f ));
 gyro->y = imu_raw->gyro_y / (UINT16_MAX / ( 2.0f * 2000.0f ));
 gyro->z = imu_raw->gyro_z / (UINT16_MAX / ( 2.0f * 2000.0f ));
 
 /* Remove gyro bias BEFORE applying axis conversion */
-gyro->x -= gyro_bias.x;
-gyro->y -= gyro_bias.y;
-gyro->z -= gyro_bias.z;
+gyro->x -= calibration_data->gyro.x;
+gyro->y -= calibration_data->gyro.y;
+gyro->z -= calibration_data->gyro.z;
 
 *mag = imu_conv_mag(imu_raw);
 
@@ -1163,20 +1157,18 @@ gyro->z -= gyro_bias.z;
 
 /**
   * @brief  Getter function for IMU sensor data (interrupt mode).
+  * @param[in] calibration_data Calibration offsets for IMU
   * @param[out]  accel Destination vector for acceleration data
-  * @param[in]  accel_bias Offset vector for acceleration data
   * @param[out]  gyro  Destination vector for gyro data
-  * @param[in]  gyro_bias Offset vector for gyro data
   * @param[out]  mag   Destination vector for mag data
   * @return IMU_STATUS: IMU_BUSY until both imu_data_ready and mag_data_ready
   *         are set by imu_it_handler().
   */
 IMU_STATUS imu_get_it
     (
+    const IMU_OFFSET* calibration_data,
     VECTOR_3F* accel,
-    VECTOR_3F  accel_bias,
     VECTOR_3F* gyro,
-    VECTOR_3F  gyro_bias,
     VECTOR_3F* mag
     )
 {
@@ -1185,7 +1177,7 @@ if( !imu_data_ready || !mag_data_ready )
     return IMU_BUSY;
     }
 
-imu_conv( &imu_raw_processed, accel, accel_bias, gyro, gyro_bias, mag );
+imu_conv( calibration_data, &imu_raw_processed, accel, gyro, mag );
 
 return IMU_OK;
 

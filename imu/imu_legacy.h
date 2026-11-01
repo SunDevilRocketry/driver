@@ -233,12 +233,8 @@ typedef struct _IMU_RAW
 /** @brief Per-axis accel/gyro zero-offset calibration values                */
 typedef struct _IMU_OFFSET 
     {
-    float accel_x;
-    float accel_y;
-    float accel_z;
-    float gyro_x ;
-    float gyro_y ;
-    float gyro_z ;
+    VECTOR_3F accel;
+    VECTOR_3F gyro;
     } IMU_OFFSET;
 
 /** @brief Sensor enable bitfield, written to IMU_REG_PWR_CTRL                */
@@ -485,20 +481,18 @@ IMU_STATUS imu_it_handler
 
 /**
   * @brief  Getter function for IMU sensor data (interrupt mode).
+  * @param[in] calibration_data Calibration offsets for IMU
   * @param[out]  accel Destination vector for acceleration data
-  * @param[in]  accel_bias Offset vector for acceleration data
   * @param[out]  gyro  Destination vector for gyro data
-  * @param[in]  gyro_bias Offset vector for gyro data
   * @param[out]  mag   Destination vector for mag data
   * @return IMU_STATUS: IMU_BUSY until both imu_data_ready and mag_data_ready
   *         are set by imu_it_handler().
   */
 IMU_STATUS imu_get_it
     (
+    const IMU_OFFSET* calibration_data,
     VECTOR_3F* accel,
-    VECTOR_3F  accel_bias,
     VECTOR_3F* gyro,
-    VECTOR_3F  gyro_bias,
     VECTOR_3F* mag
     );
 
