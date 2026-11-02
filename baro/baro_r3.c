@@ -725,4 +725,4 @@ else
     return BARO_INVALID_PROM;
     }
 
-} /* crc_verify *''
+} /* crc_verify */
