@@ -35,6 +35,56 @@
 #include "sdr_pin_defines_A0002.h"
 #include "baro.h"
 
+
+/* I2C Device Params */
+#define BARO_I2C_ADDR	    ( 0x76 << 1 )	/* 1110110 -> 0x76 */
+
+/*------------------------------------------------------------------------------
+ Project Includes                                                                     
+------------------------------------------------------------------------------*/
+/* Barometric Pressure Sensor register addresses */
+#define BARO_REG_CHIP_ID        ( 0x00 )
+#define BARO_REG_ERR_REG        ( 0x02 )
+#define BARO_REG_PRESS_DATA     ( 0x04 )  
+#define BARO_REG_TEMP_DATA      ( 0x07 ) 
+#define BARO_REG_PWR_CTRL       ( 0x1B )
+#define BARO_REG_OSR            ( 0x1C ) 
+#define BARO_REG_ODR            ( 0x1D )
+#define BARO_REG_CONFIG         ( 0x1F )
+#define BARO_REG_NVM_PAR_T1     ( 0x31 )
+#define BARO_REG_NVM_PAR_T2     ( 0x33 )
+#define BARO_REG_NVM_PAR_T3     ( 0x35 )
+#define BARO_REG_NVM_PAR_P1     ( 0x36 )
+#define BARO_REG_NVM_PAR_P2     ( 0x38 )
+#define BARO_REG_NVM_PAR_P3     ( 0x3A )
+#define BARO_REG_NVM_PAR_P4     ( 0x3B )
+#define BARO_REG_NVM_PAR_P5     ( 0x3C )
+#define BARO_REG_NVM_PAR_P6     ( 0x3E )
+#define BARO_REG_NVM_PAR_P7     ( 0x40 )
+#define BARO_REG_NVM_PAR_P8     ( 0x41 )
+#define BARO_REG_NVM_PAR_P9     ( 0x42 )
+#define BARO_REG_NVM_PAR_P10    ( 0x44 )
+#define BARO_REG_NVM_PAR_P11    ( 0x45 )
+#define BARO_REG_CMD            ( 0x7E )
+
+/* Baro device id */
+#define BMP390_DEVICE_ID        ( 0x60 )
+#define BMP388_DEVICE_ID        ( 0x50 )
+
+/* Size of calibration data in bytes */
+#define BARO_CAL_BUFFER_SIZE    ( 21   )
+
+/* Default I2C HAL timeout */
+#ifndef SDR_DEBUG
+	#define BARO_DEFAULT_TIMEOUT    ( 1    )
+#else
+	#define BARO_DEFAULT_TIMEOUT    ( 0xFFFFFFFF )
+#endif /* ifndef SDR_DEBUG */
+
+/* Baro sensor command codes */
+#define BARO_CMD_RESET          ( 0xB6 )
+#define BARO_CMD_FIFO_FLUSH     ( 0xB0 )
+
 /*------------------------------------------------------------------------------
 Global Variables  
 ------------------------------------------------------------------------------*/
