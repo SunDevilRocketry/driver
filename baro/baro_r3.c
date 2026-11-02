@@ -14,7 +14,12 @@
   * BSD-3-Clause.
   *
   * https://opensource.org/license/bsd-3-clause
+  * @details
+  * Implementation Notes
+  * We will need a HAL_TIM_OC_DelayElapsedCallback() in our IT handlers file.
   */
+
+
 
 /* Includes ------------------------------------------------------------------*/
 
@@ -30,32 +35,36 @@
 #include "baro.h"
 #include "debug_sdr.h"
 
+/* Macros ------------------------------------------------------------------*/
+#define BARO_TIMEOUT 2000
+
 /* Type Definitions ----------------------------------------------------------*/
 
 /* Baro calibration data struct in integer format */
 typedef struct _BARO_CAL_DATA_INT
 	{
-	uint16_t par_c1; // Pressure Sensitity
-	uint16_t par_c2; // Pressure Offset
-	uint16_t par_c3; // Temp. Coeff. of Pressure Sensitivity
-	uint16_t par_c4; // Temp. Coeff. of Pressure Offset
-	uint16_t par_c5; // Reference Temperature
-	uint16_t par_c6; // Temp. Coeff. of Temperature
+	uint16_t par_c1; /*  Pressure Sensitity */
+	uint16_t par_c2; /*  Pressure Offset */
+	uint16_t par_c3; /*  Temp. Coeff. of Pressure Sensitivity */
+	uint16_t par_c4; /*  Temp. Coeff. of Pressure Offset */
+	uint16_t par_c5; /*  Reference Temperature */
+	uint16_t par_c6; /*  Temp. Coeff. of Temperature */
 	} BARO_CAL_DATA_INT;
 
 /* States for FSM to read data */
 typedef enum _BARO_READ_STATE
     {
-    BARO_CONV_PRESSURE,    // Start pressure Conversion
-    BARO_WAIT_PRESSURE,    // Pressure Conversion Wait
-    BARO_READ_PRESSURE,    // Start pressure ADC Read
-    BARO_CONV_TEMPERATURE, // Start Temp Conversion
-    BARO_WAIT_TEMPERATURE, // Temp Conversion Wait
-    BARO_READ_TEMPERATURE, // Start Temperature ADC Read
-    BARO_READ_FINISH,      // Complete sensor reading
-    BARO_READ_DONE,         // Done
+    BARO_CONV_PRESSURE,    /*  Start pressure Conversion */
+    BARO_WAIT_PRESSURE,    /*  Pressure Conversion Wait */
+    BARO_READ_PRESSURE,    /*  Start pressure ADC Read */
+    BARO_CONV_TEMPERATURE, /*  Start Temp Conversion */
+    BARO_WAIT_TEMPERATURE, /*  Temp Conversion Wait */
+    BARO_READ_TEMPERATURE, /*  Start Temperature ADC Read */
+    BARO_READ_FINISH,      /*  Complete sensor reading */
+    BARO_READ_DONE,         /*  Done */
     BARO_READ_FAIL
     } BARO_READ_STATE;
+    
 /* Global Variables ----------------------------------------------------------*/
 
 /* Current Baro Sensor configuration */
@@ -86,14 +95,6 @@ static _Atomic BARO_READ_STATE baro_read_state = BARO_READ_FAIL;
 static BARO_STATUS success;
 
 /* Private function prototypes -----------------------------------------------*/
-
-/* Some of these are probably good candidates for macros */
-
-/*
- * Implementation Notes
- * I think we can create a TIM_OC_InitTypeDef, configure HAL_TIM_OC_ConfigChannel in a channel,
- * and then run HAL_TIM_OC_Start. Our callback is then HAL_TIM_OC_DelayElapsedCallback().
- */
 static BARO_STATUS create_timer_interrupt
     (
     uint32_t timeout_us
@@ -132,6 +133,8 @@ static BARO_STATUS crc_verify
  * @details Load pre-calculated command values into their static variables,
  * calculate necessary sensor timeouts, and get calibration data.
  *
+ * @param Pointer to the barometer config to use
+ * 
  * @retval Barometer status
  */
 BARO_STATUS baro_init
@@ -139,10 +142,20 @@ BARO_STATUS baro_init
     BARO_CONFIG *config_ptr
     )
 {
-/* Run PROM verification */
-BARO_STATUS crc_check = crc_verify();
+/* Local Variables */
+BARO_STATUS crc_check;
 
-if( crc_check == BARO_INVALID_PROM ) {
+uint16_t coeffs[6];
+
+HAL_StatusTypeDef read_success;
+
+/* Implementation */
+
+/* Run PROM verification */
+crc_check = crc_verify();
+
+if( crc_check == BARO_INVALID_PROM )
+{
     return crc_check;
 }
 
@@ -152,7 +165,8 @@ baro_configuration.press_OSR_setting |= config_ptr->press_OSR_setting;
 baro_configuration.temp_OSR_setting |= config_ptr->temp_OSR_setting;
 
 /* Pre-calculate static command values */
-switch(baro_configuration.press_OSR_setting)
+/* These are all pulled from the datasheet */
+switch( baro_configuration.press_OSR_setting )
     {
     case BARO_PRESS_OSR_X256:
         pressure_cmd = 0x40;
@@ -181,13 +195,13 @@ switch(baro_configuration.press_OSR_setting)
         return BARO_FAIL;
     }
 
-switch(baro_configuration.temp_OSR_setting)
+switch( baro_configuration.temp_OSR_setting )
     {
     case BARO_TEMP_OSR_X256:
         temperature_cmd = 0x50;
         temperature_timeout = 600;
         break;
-        case BARO_TEMP_OSR_X512:
+    case BARO_TEMP_OSR_X512:
         temperature_cmd = 0x52;
         temperature_timeout = 1170;
         break;
@@ -205,33 +219,30 @@ switch(baro_configuration.temp_OSR_setting)
         break;
     default:
         /* An invalid enum value has been used */
-        /* This should be unreachable under correct usage */
+        /* This shouldn't be reached under correct usage */
         debug_assert(false, ERROR_BARO_INIT_ERROR);
         return BARO_FAIL;
     }
 
     /* Acquire calibration coefficients
-     I loop through the PROM indicies of each calibration coefficient and save
-     it to a buffer */
-    uint16_t coeffs[6];
-
-    HAL_StatusTypeDef read_success;
-
-    for( int coeff = 1; coeff < 6; coeff += 1 ) {
+     * Loops through the PROM indicies of each calibration coefficient and saves
+     * it to a buffer */
+    for( int coeff = 0; coeff < 5; coeff += 1 )
+    {
         /* The first byte is the calculated PROM read command, and second is filler byte */
-        uint8_t transmit_buffer[2] = {0xA0 + (coeff << 1), 0xFF};
+        uint8_t transmit_buffer[2] = {0xA0 + ((coeff + 1) << 1), 0xFF};
         uint8_t receive_buffer[2];
 
         /* Do the read */
-        // TODO do more proper timeout
-        read_success = HAL_SPI_TransmitReceive(&(BARO_SPI), transmit_buffer, receive_buffer, 2, 2000);
+        read_success = HAL_SPI_TransmitReceive(&(BARO_SPI), transmit_buffer, receive_buffer, 2, BARO_TIMEOUT);
 
-        if( read_success != HAL_OK ) {
+        if( read_success != HAL_OK )
+        {
             return BARO_FAIL; /* SPI communication failure */
         }
 
         /* Turn it into a usable format */
-        coeffs[coeff - 1] = (receive_buffer[0] << 8) + receive_buffer[1];
+        coeffs[coeff] = (receive_buffer[0] << 8) + receive_buffer[1];
     }
 
     /* Set the calibration coefficients */
@@ -243,7 +254,7 @@ switch(baro_configuration.temp_OSR_setting)
     baro_cal_data.par_c6 = coeffs[5];
 
     return BARO_OK;
-}
+} /* baro_init */
 
 /**
   * @brief Check if barometer data is ready
@@ -258,8 +269,9 @@ bool baro_get_baro_data_ready
     void
     )
 {
-return baro_read_state == BARO_READ_DONE;
-}
+return (baro_read_state == BARO_READ_DONE);
+
+} /* baro_get_baro_data_ready */
 
 /**
   * @brief Get barometer data if ready, in millibars and degrees celcius.
@@ -309,14 +321,16 @@ int32_t temp = 2000 + deltaT * (baro_cal_data.par_c6 / (2 << 23));
 /* These variables want a 64 bit signed int */
 int64_t off = 0;
 int64_t sens = 0;
-if (temp < 2000){
+if ( temp < 2000 )
+{
     int32_t t2 = deltaT*deltaT / (1 << 31);
     int32_t temp_diff = temp - 2000;
     temp_diff *= temp_diff;
     off -= 61 * temp_diff / (2 << 4);
     sens -= 2 * temp_diff;
 
-    if (temp < -1500){
+    if (temp < -1500)
+    {
         temp_diff = temp + 1500;
         temp_diff *= temp_diff;
         off -= 15 * temp_diff;
@@ -336,7 +350,7 @@ int32_t p = (d1 * sens / (2 << 21) - off) / (2 << 15);
 *temp_ptr = (float) temp / 100.0;
 
 return BARO_OK;
-}
+} /* baro_get_IT */
 
 /**
   * @brief Initiate reading of baro via interrupt mode
@@ -355,19 +369,18 @@ BARO_STATUS baro_start_read_IT
 {
 switch ( baro_read_state )
     {
-    case BARO_READ_FAIL:
-
-    case BARO_READ_DONE: // No currently running read
+    case BARO_READ_DONE: /*  No currently running read */
         baro_read_state = BARO_CONV_PRESSURE;
         HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_RESET );
         baro_IT_handler(BARO_EVENT_START_READ); /* Keep FSM logic in that function */
         break;
-
-    default: // Read in progress
+        
+    case BARO_READ_FAIL:
+    default: /*  Read in progress */
         break;
     }
     return BARO_BUSY;
-}
+} /* baro_start_read_IT */
 
 /**
   * @brief Data acquisition finite state machine.
@@ -392,7 +405,7 @@ switch(baro_read_state) {
             /* Do nothing */
             return BARO_BUSY;
             }
-        // 1. Called by baro_start_read_IT, start pressure conversion
+        /*  1. Called by baro_start_read_IT, start pressure conversion */
         success = transmit_cmd_IT(pressure_cmd);
         update_state(BARO_WAIT_PRESSURE);
         break;
@@ -402,7 +415,7 @@ switch(baro_read_state) {
             /* Do nothing */
             return BARO_BUSY;
             }
-        // 2. Called by SPI_TxCpltCallback(), create pressure conversion timeout
+        /*  2. Called by SPI_TxCpltCallback(), create pressure conversion timeout */
         success = create_timer_interrupt(pressure_timeout);
         update_state(BARO_READ_PRESSURE);
         break;
@@ -412,7 +425,7 @@ switch(baro_read_state) {
             /* Do nothing */
             return BARO_BUSY;
             }
-        // 3. Called by HAL_TIM_OC_DelayElapsedCallback(), press temp ADC read
+        /*  3. Called by HAL_TIM_OC_DelayElapsedCallback(), press temp ADC read */
         clear_timer_interrupt();
         success = transceive_adc_IT(baro_raw_press_buffer);
         update_state(BARO_CONV_TEMPERATURE);
@@ -423,7 +436,7 @@ switch(baro_read_state) {
             /* Do nothing */
             return BARO_BUSY;
             }
-        // 4. Called by HAL_SPI_TxRxCpltCallback(), start temperature conversion
+        /*  4. Called by HAL_SPI_TxRxCpltCallback(), start temperature conversion */
         success = transmit_cmd_IT(temperature_cmd);
         update_state(BARO_WAIT_TEMPERATURE);
         break;
@@ -433,7 +446,7 @@ switch(baro_read_state) {
             /* Do nothing */
             return BARO_BUSY;
             }
-        // 5. Called by SPI_TxCpltCallback(), create temp conversion timeout
+        /*  5. Called by SPI_TxCpltCallback(), create temp conversion timeout */
         success = create_timer_interrupt(temperature_timeout);
         update_state(BARO_READ_TEMPERATURE);
         break;
@@ -443,7 +456,7 @@ switch(baro_read_state) {
             /* Do nothing */
             return BARO_BUSY;
             }
-        // 6. Called by HAL_TIM_OC_DelayElapsedCallback(), run temp ADC read
+        /*  6. Called by HAL_TIM_OC_DelayElapsedCallback(), run temp ADC read */
         clear_timer_interrupt();
         success = transceive_adc_IT(baro_raw_press_buffer);
         update_state(BARO_READ_FINISH);
@@ -454,24 +467,26 @@ switch(baro_read_state) {
             /* Do nothing */
             return BARO_BUSY;
             }
-        // 7. Called by HAL_SPI_TxRxCpltCallback(), switch to done state.
+        /*  7. Called by HAL_SPI_TxRxCpltCallback(), switch to done state. */
         success = BARO_OK;
         HAL_GPIO_WritePin( LORA_NSS_GPIO_PORT, LORA_NSS_PIN, GPIO_PIN_SET );
         update_state(BARO_READ_DONE);
         break;
     case BARO_READ_DONE:
-        // We're done. Nothing happens.
+        /*  We're done. Nothing happens.*/
         /* This state should never be entered during normal execution */
-        debug_assert(true, ERROR_BARO_INVALID_STATE_ERROR);
+        /* NOOP */
         success = BARO_OK;
         break;
     default:
         /* This state should never be entered during normal execution */
         debug_assert(true, ERROR_BARO_INVALID_STATE_ERROR);
-        success = BARO_FAIL; // BARO_READ_FAIL or undefined state
+        success = BARO_FAIL; /*  BARO_READ_FAIL or undefined state */
+        break;
 }
 return success;
-}
+
+} /* baro_IT_handler */
 
 /* Helpers ----------------------------------------------------------------*/
 
@@ -515,19 +530,22 @@ static BARO_STATUS create_timer_interrupt
     /* Configure the TIM channel */
     HAL_StatusTypeDef timer_success = HAL_TIM_OC_ConfigChannel(&MICRO_TIM, &chip_delay, BARO_TIM_CHANNEL);
 
-    if (timer_success != HAL_OK) {
+    if (timer_success != HAL_OK)
+    {
         return BARO_FAIL;
     }
     
     /* Start the timer */
     timer_success = HAL_TIM_OC_Start_IT(&MICRO_TIM, BARO_TIM_CHANNEL);
 
-    if(timer_success != HAL_OK) {
+    if(timer_success != HAL_OK)
+    {
         return BARO_FAIL;
     }
 
     return BARO_OK;
-}
+    
+} /* create_timer_interrupt */
 
 /**
  * @brief Clears an existing timer interrupt
@@ -552,7 +570,8 @@ if (timer_success != HAL_OK) {
 }
 
 return BARO_OK;
-}
+
+} /* clear_timer_interrupt */
 
 /**
  * @brief Transmits a single command byte to the baro
@@ -569,12 +588,16 @@ static BARO_STATUS transmit_cmd_IT
 HAL_StatusTypeDef success;
 success = HAL_SPI_Transmit_IT(&(BARO_SPI), &command_byte, 1);
 
-if( success == HAL_OK ){
+if( success == HAL_OK )
+    {
     return BARO_OK;
-} else {
+    }
+else
+    {
     return BARO_SPI_ERROR;
-}
-}
+    }
+
+} /* transmit_cmd_IT */
 
 /**
  * @brief Requests the 3 bytes of data currently in the ADC
@@ -597,12 +620,16 @@ uint8_t in_buffer[3] = {0x00, 0xFF, 0xFF};
 HAL_StatusTypeDef success;
 success = HAL_SPI_TransmitReceive_IT(&(BARO_SPI), in_buffer, out_buffer, 3);
 
-if( success == HAL_OK ){
+if( success == HAL_OK )
+    {
     return BARO_OK;
-} else {
+    }
+else
+    {
     return BARO_SPI_ERROR;
-}
-}
+    }
+
+} /* transceive_adc_IT */
 
 /**
  * @brief Move to requested state if no fail conditions are detected
@@ -614,7 +641,7 @@ static void update_state
     BARO_READ_STATE next_state
     )
 {
-if(success == BARO_OK)
+if (success == BARO_OK )
     {
     baro_read_state = next_state;
     }
@@ -622,7 +649,8 @@ else
     {
     baro_read_state = BARO_READ_FAIL;
     }
-}
+
+} /* update_state */
 
 /**
  * @brief Verify the intregrity of the barometer's internal PROM
@@ -660,28 +688,41 @@ uint16_t expected = prom[7] & 0x000F;
 prom[7] &= 0xFF00;
 
 /* Loop through the bytes of the PROM */
-for( int i = 0; i < 16; i++ ) {
-	if( i % 2 == 1 ) { /* Select first or second byte of uint16_t */
+for( int i = 0; i < 16; i++ ) 
+    {
+	if( i % 2 == 1 ) /* Select first or second byte of uint16_t */
+	    {
 		remainder ^= (prom[i >> 1]) & 0x00FF;
-	} else {
+		} 
+	else
+	    {
 		remainder ^= prom[i >> 1] >> 8;
-	}
-	for( int bit = 8; bit > 0; bit-- ) {
-		if( remainder & 0x8000 ) {
-			remainder = (remainder << 1) ^ 0x3000;
-		} else {
-			remainder = (remainder << 1);
 		}
-	}
-}
+	for( int bit = 8; bit > 0; bit-- )
+	    {
+    		if( remainder & 0x8000 )
+    		{
+    			remainder = (remainder << 1) ^ 0x3000;
+    		}
+    		else
+    		{
+    			remainder = (remainder << 1);
+    		}
+		}
+	
+    }
 
 /* Get final remainder */
 remainder = (0x000F & (remainder >> 12)) ^ 0x00;
 
 /* Compare remainder with expected to get return value */
-if( remainder == expected ) {
+if( remainder == expected )
+    {
     return BARO_OK;
-} else {
+    }
+else
+    {
     return BARO_INVALID_PROM;
-}
-}
+    }
+
+} /* crc_verify *''
