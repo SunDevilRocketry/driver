@@ -35,8 +35,6 @@ ROOT_DIR  = ../../../..
 # library directory
 LIB_DIR = $(ROOT_DIR)/lib
 
-INIT_DIR = $(ROOT_DIR)/init
-
 DRIVER_DIR = $(ROOT_DIR)/driver
 
 TEST_DIR = ../../
@@ -84,8 +82,6 @@ C_INCLUDES =                                           \
 -I$(LIB_DIR)/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy   \
 -I$(LIB_DIR)/Drivers/CMSIS/Device/ST/STM32H7xx/Include \
 -I$(LIB_DIR)/Drivers/CMSIS/Include                     \
--I$(ROOT_DIR)/init/rev2/config/Inc				   \
--I$(INIT_DIR)/config/Inc                               \
 -I$(TEST_DIR)/framework/src				   	   \
 -I$(TEST_DIR)/driver/gps/mock/					\
 -I$(TEST_DIR)/utilities

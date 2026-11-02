@@ -37,11 +37,6 @@ Includes
 /* Standard includes */
 #include <stdbool.h>
 
-/* Project includes */
-#ifndef A0010
-#include "sensor.h"
-#endif
-
 /* Aliasing -- choose implementation */
 #ifndef A0010
 #define USE_LEGACY_FLASH_DRIVER
