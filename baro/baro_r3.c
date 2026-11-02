@@ -14,6 +14,7 @@
   * BSD-3-Clause.
   *
   * https://opensource.org/license/bsd-3-clause
+  *
   * @details
   * Implementation Notes
   * We will need a HAL_TIM_OC_DelayElapsedCallback() in our IT handlers file.
