@@ -399,7 +399,7 @@ BARO_STATUS baro_IT_handler
     BARO_EVENT update_cause
     )
 {
-switch(baro_read_state) {
+switch( baro_read_state ) {
     case BARO_CONV_PRESSURE:
         if( update_cause != BARO_EVENT_START_READ )
             {
