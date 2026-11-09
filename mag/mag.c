@@ -211,6 +211,30 @@ if(success == HAL_OK) {
 }
 }
 
+/**
+ * @brief Finish off the magnetomer read.
+ *
+ * @details Basically just lets us know a read is complete.
+ * Most of the heavy lifting is done in get_xyz.
+ *
+ * @retval Status. This status shouldn't matter because
+ * it's an interrupt handler, but other libraries tend to
+ * do it anyway.
+ */
+MAG_STATUS mag_it_handler
+    (
+    void
+    )
+{
+if(ready != MAG_OK)
+    {
+    ready = MAG_OK;
+    return MAG_OK
+    }
+
+return MAG_I2C_FAIL;
+} /* mag_it_handler */
+
 /* Private functions -----------------------------------------------*/
 
 /* Blocking magnetometer register write */
