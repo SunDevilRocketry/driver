@@ -74,6 +74,7 @@ static uint8_t mag_read_buffer[MAG_BUFFER_LEN];
 static float lsb_to_ut_degc[4];
 
 /* Holds OTP constants converted into useful forms */
+// TODO consider putting these into a struct like Bosch does
 static float sens_x, sens_y, sens_z, t_sens;
 static float t_offs, dut_t0;
 static float dut_offset_coef[3], dut_sensit_coef[3], dut_tco[3], dut_tcs[3];
@@ -136,48 +137,55 @@ config_buffer[2] = (mag_config_ptr->axis_z << 2) |
 
 success = write_reg(config_buffer, 3, MAG_REG_PADCTRL);
 
-if(success != HAL_OK) {
+if ( success != HAL_OK ) 
+    {
     return MAG_I2C_FAIL;
-}
+    }
 
-for(int addr = 0; addr < MAG_OTP_LEN; addr++) {
+for ( int addr = 0; addr < MAG_OTP_LEN; addr++ )
+    {
     uint8_t read_cmd = MAG_CMD_OTP_READ | (addr & MAG_OTP_ADDR_MASK);
     
     success = write_reg(&read_cmd, 1, MAG_REG_CMD);
 
-    if(success != HAL_OK) {
+    if( success != HAL_OK )
+        {
         return MAG_I2C_FAIL;
-    }
+        }
     
     /* Poll OTP status register */
     uint8_t status = 0x00;
     
-    while( !(status & MAG_OTP_CMD_DONE) ) {
+    while ( !(status & MAG_OTP_CMD_DONE) )
+        {
        success = read_reg(&status, 1, MAG_REG_OTP_STATUS);
        
-       if(success != HAL_OK) {
+       if ( success != HAL_OK )
+        {
            return MAG_I2C_FAIL;
-       }
+        }
 
        /* Check status */
-       if((status & MAG_OTP_ERR_MASK) != 0) {
+       if ( ( status & MAG_OTP_ERR_MASK ) != 0 )
+            {
            /* Internal modem error */
            return otp_reg_to_err_stat(status, MAG_INIT_FAIL);
-       }
-    } 
+            }
+        } 
 
     /* Read the constant */
     uint8_t otp_const[2];
     
     success = read_reg(otp_const, 2, MAG_REG_OTP_MSB);
 
-    if(success != HAL_OK) {
+    if ( success != HAL_OK )
+        {
         return MAG_I2C_FAIL;
-    }
+        }
 
     /* Concatenate two bytes in array into a uint16_t */
     mag_otp[addr] = (otp_const[0] << 8) | otp_const[1];
-}
+    }
 
 /* Initialize some needed conversion constants */
 update_default_coefiecents( lsb_to_ut_degc );
@@ -195,7 +203,8 @@ t_offs = ( (int8_t) ( mag_otp[MAG_OTP_SENS_T] & 0x00FF ) ) / 5.0f;
 // TODO initialize other constants needed for compensation
 
 return MAG_OK;
-}
+
+} /* mag_init */
 
 /**
  * @brief See if most recently-requested mag read is ready
@@ -214,7 +223,8 @@ MAG_STATUS mag_get_ready
 debug_assert((ready == MAG_BUSY | ready == MAG_OK | ready == MAG_I2C_FAIL), ERROR_UNKNOWN_FATAL_ERROR);
 // TODO update error.h with its own error
 return ready;
-}
+
+} /* mag_get_ready */
 
 /**
  * @brief Initiate interrupt-based magnetometer read
@@ -241,14 +251,16 @@ success = HAL_I2C_Mem_Write_IT(&(MAG_I2C)           ,
                                 mag_read_buffer     ,
                                 MAG_BUFFER_LEN);
 
-if(success == HAL_OK) {
+if ( success == HAL_OK )
+    {
     ready = MAG_BUSY;
     return MAG_OK;
-} else {
-    ready = MAG_I2C_FAIL;
-    return MAG_I2C_FAIL;
-}
-}
+    }
+
+ready = MAG_I2C_FAIL;
+return MAG_I2C_FAIL;
+
+} /* mag_start_read */ 
 
 /**
  * @brief Finish off the magnetomer read.
@@ -272,6 +284,7 @@ if ( ready != MAG_OK )
     }
 
 return MAG_I2C_FAIL;
+
 } /* mag_it_handler */
 
 /**
@@ -354,15 +367,29 @@ if ( ready == MAG_OK )
     }
 
 return ready_val;
+
 } /* mag_get_xyz */
 
 /* Private functions -----------------------------------------------*/
 
-/* Blocking magnetometer register write */
-/* Only use this in init code */
+/**
+ * @brief Blocking magnetometer register write
+ * 
+ * @warning Only use this in initialization code; all other writes
+ * are done using non-blocking functions.
+ *
+ * @details Wraps around STM32 HAL function, with I2C parameters
+ * baked in and HAL return types converted to MAG_STATUS.
+ * 
+ * @param buffer Buffer to write I2C bytes from
+ * @param size Size of buffer
+ * @param address I2C register address to write to.
+ *
+ * @retval Status of I2C read
+ */
 static MAG_STATUS write_reg
     (
-    uint8_t *buffer,
+    uint8_t* buffer,
     uint8_t size,
     MAG_REG address
     )
@@ -375,14 +402,30 @@ success = HAL_I2C_Mem_Write(&(MAG_I2C)          ,
                             buffer              ,
                             size                ,
                             MAG_TIMEOUT );
-if(success == HAL_OK) {
+if ( success == HAL_OK )
+    {
     return MAG_OK;
-} else {
-    return MAG_I2C_FAIL;
-}
-}
+    }
 
-/* Blocking read, only for init */
+return MAG_I2C_FAIL;
+
+} /* write_reg */
+
+/**
+ * @brief Blocking magnetometer register read
+ * 
+ * @warning Only use this in initialization code; all sensor writes
+ * are done using non-blocking functions.
+ *
+ * @details Wraps around STM32 HAL function, with I2C parameters
+ * baked in and HAL return types converted to MAG_STATUS.
+ * 
+ * @param buffer Buffer to read I2C bytes into
+ * @param size Size of buffer
+ * @param address I2C register address to read from.
+ *
+ * @retval Status of I2C read
+ */
 static MAG_STATUS read_reg
     (
     uint8_t *buffer,
@@ -399,20 +442,31 @@ success = HAL_I2C_Mem_Read(&(MAG_I2C)          ,
                             size                ,
                             MAG_TIMEOUT );
 
-if(success == HAL_OK) {
+if ( success == HAL_OK )
+    {
     return MAG_OK;
-} else {
-    return MAG_I2C_FAIL;
-}
-}
+    }
 
+return MAG_I2C_FAIL;
+
+} /* read_reg */
+
+/**
+ * @brief Converts OTP status to one of our error ENUM values
+ * 
+ * @param status Raw OTP status
+ * @param default_status Default status to return if not matched
+ *
+ * @retval Result of status conversion.
+ */
 static MAG_STATUS otp_reg_to_err_stat
     (
     uint8_t status,
     MAG_STATUS default_status
     )
 {
-switch( (status & MAG_OTP_ERR_MASK) >> 5 ) {
+switch( (status & MAG_OTP_ERR_MASK) >> 5 )
+    {
     case 1:
         return MAG_BOOT_FAIL;
     case 2:
@@ -425,8 +479,9 @@ switch( (status & MAG_OTP_ERR_MASK) >> 5 ) {
         return MAG_INV_CMD_ERR;
     default:
         return default_status;
-}
-}
+    }
+    
+} /* otp_reg_to_err_stat */
 
 /**
  * @brief Calculate some coefficients needed for conversions.
@@ -434,11 +489,11 @@ switch( (status & MAG_OTP_ERR_MASK) >> 5 ) {
  * @details Copied verbatim from the official BM350 driver,
  * minus a few stylistic modifications.
  * 
- * @param Pointer to array of said coefficients.
+ * @param lsb_to_ut_degc Pointer to array of said coefficients.
  */
 static void update_default_coefiecents
     (
-    float *lsb_to_ut_degc
+    float* lsb_to_ut_degc
     )
 {
 /* Local Variables */
@@ -463,4 +518,5 @@ lsb_to_ut_degc[0] = (power / (bxy_sens * ina_xy_gain_trgt * adc_gain * lut_gain)
 lsb_to_ut_degc[1] = (power / (bxy_sens * ina_xy_gain_trgt * adc_gain * lut_gain));
 lsb_to_ut_degc[2] = (power / (bz_sens * ina_z_gain_trgt * adc_gain * lut_gain));
 lsb_to_ut_degc[3] = 1 / (temp_sens * adc_gain * lut_gain * 1048576);
-}
+
+} /* update_default_coefiecents */
