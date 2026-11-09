@@ -30,6 +30,12 @@
 #include "error_sdr.h"
 #include "debug_sdr.h"
 
+/* Function-like Macros -------------------------------------------------*/
+/* Concatenates 3 bytes from the read data */
+#define bytes_to_int(i) ( mag_read_buffer[i + 2] << 16 ) | \
+                        ( mag_read_buffer[i + 1] << 8  ) | \
+                          mag_read_buffer[i]
+
 /* Definitions ----------------------------------------------------------*/
 #define MAG_I2C_ADDR 0x00 << 1 // TODO check if correct
 #define MAG_TIMEOUT  10
@@ -39,6 +45,11 @@
 #define MAG_OTP_LEN       32
 #define MAG_OTP_CMD_DONE  0x01
 #define MAG_OTP_ERR_MASK  0xE0
+#define MAG_OTP_SENS_X    0x10
+#define MAG_OTP_SENS_Y    0x11
+#define MAG_OTP_SENS_Z    0x11
+#define MAG_OTP_SENS_T    0x0D
+
 
 // If we implement more CMDs, turn this into a struct
 #define MAG_CMD_OTP_READ 0x20
@@ -60,6 +71,14 @@ static MAG_STATUS ready = MAG_BUSY;
 
 static uint8_t mag_read_buffer[MAG_BUFFER_LEN];
 
+static float lsb_to_ut_degc[4];
+
+/* Holds OTP constants converted into useful forms */
+static float sens_x, sens_y, sens_z, t_sens;
+static float t_offs, dut_t0;
+static float dut_offset_coef[3], dut_sensit_coef[3], dut_tco[3], dut_tcs[3];
+static float cross_x_y, cross_y_x, cross_z_y, cross_z_x;
+
 /* Private function prototypes -----------------------------------------------*/
 static MAG_STATUS write_reg
     (
@@ -79,6 +98,11 @@ static MAG_STATUS otp_reg_to_err_stat
     (
     uint8_t status,
     MAG_STATUS default_status
+    );
+
+static void update_default_coefiecents
+    (
+    float *lsb_to_ut_degc
     );
 
 /* Procedures ----------------------------------------------------------------*/
@@ -155,6 +179,21 @@ for(int addr = 0; addr < MAG_OTP_LEN; addr++) {
     mag_otp[addr] = (otp_const[0] << 8) | otp_const[1];
 }
 
+/* Initialize some needed conversion constants */
+update_default_coefiecents( lsb_to_ut_degc );
+
+/* Turn the OTP data into some useful coefficients */
+/* Taken from official driver function update_mag_off_sens */
+/* TODO make sure this type cast actually does the same thing as Bosch fix_sign */
+sens_x = ( (int8_t) ( ( mag_otp[MAG_OTP_SENS_X] & 0xFF00 ) >> 8 ) ) / 256.0f;
+sens_y = ( (int8_t) ( mag_otp[MAG_OTP_SENS_Y] & 0x00FF ) ) / 256.0f;
+sens_z = ( (int8_t) ( ( mag_otp[MAG_OTP_SENS_Z] & 0xFF00 ) >> 8 ) ) / 256.0f;
+t_sens = ( (int8_t) ( mag_otp[MAG_OTP_SENS_T] & 0xFF00 ) >> 8 ) / 256.0f;
+
+t_offs = ( (int8_t) ( mag_otp[MAG_OTP_SENS_T] & 0x00FF ) ) / 5.0f;
+
+// TODO initialize other constants needed for compensation
+
 return MAG_OK;
 }
 
@@ -226,14 +265,96 @@ MAG_STATUS mag_it_handler
     void
     )
 {
-if(ready != MAG_OK)
+if ( ready != MAG_OK )
     {
     ready = MAG_OK;
-    return MAG_OK
+    return MAG_OK;
     }
 
 return MAG_I2C_FAIL;
 } /* mag_it_handler */
+
+/**
+ * @brief Run conversion of raw sensor data into XYZ struct
+ *
+ * @details A whole ton of math, based on the official
+ * Bosch driver.
+ * 
+ * @param Pointer to the XYZ struct that the result data should
+ * be put in.
+ *
+ * @retval The status of the conversion. Only situation for failure
+ * should be if this is initiated before ready is in the MAG_OK
+ * state.
+ */
+MAG_STATUS mag_get_xyz
+    (
+    MAG_XYZ *mag_xyz
+    )
+{
+/* Local variables */
+MAG_STATUS ready_val;
+
+uint32_t xint, yint, zint, tint;
+
+float temp;
+
+float* out_data[3] = { &(mag_xyz->mag_x),
+                      &(mag_xyz->mag_y),
+                      &(mag_xyz->mag_z) };
+
+float cr_ax_comp_x, cr_ax_comp_y, cr_ax_comp_z;
+
+/* Implementation */
+ready_val = mag_get_ready();
+if ( ready == MAG_OK )
+    {
+    /* Concanate bytes of raw data */
+    xint = bytes_to_int(0);
+    yint = bytes_to_int(3);
+    zint = bytes_to_int(6);
+    tint = bytes_to_int(9);
+
+    /* Get compensated temperature, used for comp of other variables */
+    temp = ( 1 + t_sens ) * tint + t_offs;
+
+    /* Compensate data */
+    for ( int i = 0; i < 3; i++)
+    {
+        *out_data[i] = 0.0f;
+        *out_data[i] *= 1 + dut_sensit_coef[i];
+        *out_data[i] += dut_offset_coef[i];
+        *out_data[i] += dut_tco[i] * (temp - dut_t0);
+        *out_data[i] /= 1 + dut_tcs[i] * (temp - dut_t0);
+        // TODO make sure we initialize dut_t0 in mag_init
+    }
+
+    /* Cross axis compensation */
+    cr_ax_comp_x = (*out_data[0] - cross_x_y * *out_data[1]) /
+                   (1 - cross_y_x * cross_x_y);
+    cr_ax_comp_y = (*out_data[1] - cross_y_x * *out_data[0]) /
+                   (1 - cross_y_x * cross_x_y);
+
+    // TODO this looks like there has been child murder.
+    // Comprehend this, and then make it look less ugly.
+    cr_ax_comp_z =
+        (*out_data[2] +
+        (*out_data[0] *
+          (cross_y_x * cross_z_y -
+           cross_z_x) - *out_data[1] *
+          (cross_z_y - cross_x_y *
+           cross_z_x)) /
+         (1 - cross_y_x * cross_x_y));
+
+    *out_data[0] = cr_ax_comp_x;
+    *out_data[1] = cr_ax_comp_y;
+    *out_data[2] = cr_ax_comp_z;
+    
+    return MAG_OK;
+    }
+
+return ready_val;
+} /* mag_get_xyz */
 
 /* Private functions -----------------------------------------------*/
 
@@ -305,4 +426,41 @@ switch( (status & MAG_OTP_ERR_MASK) >> 5 ) {
     default:
         return default_status;
 }
+}
+
+/**
+ * @brief Calculate some coefficients needed for conversions.
+ *
+ * @details Copied verbatim from the official BM350 driver,
+ * minus a few stylistic modifications.
+ * 
+ * @param Pointer to array of said coefficients.
+ */
+static void update_default_coefiecents
+    (
+    float *lsb_to_ut_degc
+    )
+{
+/* Local Variables */
+float bxy_sens, bz_sens, temp_sens, ina_xy_gain_trgt, ina_z_gain_trgt, adc_gain, lut_gain;
+float power;
+
+/* Implementation */
+bxy_sens = 14.55f;
+bz_sens = 9.0f;
+temp_sens = 0.00204f;
+
+ina_xy_gain_trgt = 19.46f;
+
+ina_z_gain_trgt = 31.0;
+
+adc_gain = 1 / 1.5f;
+lut_gain = 0.714607238769531f;
+
+power = (float)(1000000.0 / 1048576.0);
+
+lsb_to_ut_degc[0] = (power / (bxy_sens * ina_xy_gain_trgt * adc_gain * lut_gain));
+lsb_to_ut_degc[1] = (power / (bxy_sens * ina_xy_gain_trgt * adc_gain * lut_gain));
+lsb_to_ut_degc[2] = (power / (bz_sens * ina_z_gain_trgt * adc_gain * lut_gain));
+lsb_to_ut_degc[3] = 1 / (temp_sens * adc_gain * lut_gain * 1048576);
 }
