@@ -12,12 +12,13 @@
 #include "pindefs.h"
 #include "stm32h7xx_hal_uart.h"
 
-void MOCK_HAL_Status_Returns
+void MOCK_HAL_Setup
     (
     HAL_StatusTypeDef status1ToReturn,
-    HAL_StatusTypeDef status2ToReturn
+    HAL_StatusTypeDef status2ToReturn,
+    HAL_StatusTypeDef status3ToReturn,
+    HAL_StatusTypeDef status4ToReturn
     );
-
 HAL_StatusTypeDef HAL_TIM_PWM_Start
     (
     TIM_HandleTypeDef* buzzTim,
