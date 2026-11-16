@@ -61,7 +61,7 @@ uint64_t get_us_tick
     void
     )
 {
-uint64_t tick = micro_tim_wraparounds * MICRO_TIM.Init.Period + __HAL_TIM_GET_COUNTER(&MICRO_TIM);
+uint64_t tick = micro_tim_wraparounds * ((uint64_t)(MICRO_TIM.Init.Period)+1U) + __HAL_TIM_GET_COUNTER(&MICRO_TIM);
 return tick;
 
 } /* get_us_tick */
