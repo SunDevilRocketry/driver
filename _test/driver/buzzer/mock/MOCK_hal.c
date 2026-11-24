@@ -1,14 +1,21 @@
-/*******************************************************************************
-*
-* FILE: 
-*      MOCK_hal.c (MOCK)
-*
-* DESCRIPTION: 
-*      Mocked source file. Contains empty function prototypes for HAL to trick
-*      tests into compiling.
-*
-*******************************************************************************/
-
+/**
+  ********************************************************************************
+  * @file MOCK_hal.c
+  * @brief Mock HAL functions for the buzzer driver unit tests
+  *******************************************************************************
+  * @copyright
+  * 
+  * Copyright (c) 2026 Sun Devil Rocketry.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is covered under the   
+  * BSD-3-Clause.                                                          
+  *                                                                              
+  * https://opensource.org/license/bsd-3-clause
+  *
+  ******************************************************************************/
 #include <stdint.h>
 #include "main.h"
 
@@ -41,7 +48,8 @@ mocked_returns[3] = status4ToReturn;
 
 cur_return = 0;
 delayCallCount = 0;
-}
+} /* MOCK_HAL_Setup */
+
 
 HAL_StatusTypeDef HAL_TIM_PWM_Start
     (
@@ -49,13 +57,14 @@ HAL_StatusTypeDef HAL_TIM_PWM_Start
     unsigned int buzzTimChannel
     )
 {
-    if ( buzzTim == &BUZZ_TIM && buzzTimChannel == BUZZ_TIM_CHANNEL )
+if ( buzzTim == &BUZZ_TIM && buzzTimChannel == BUZZ_TIM_CHANNEL )
     {
-        HAL_TIM_PWM_Start_called_correctly = true;
-    }
+    HAL_TIM_PWM_Start_called_correctly = true;
+    } 
 
-    return mocked_returns[cur_return++];
-}
+return mocked_returns[cur_return++];
+} /* HAL_TIM_PWM_Start */
+
 
 HAL_StatusTypeDef HAL_TIM_PWM_Stop
     (
@@ -63,22 +72,21 @@ HAL_StatusTypeDef HAL_TIM_PWM_Stop
     unsigned int buzzTimChannel
     )
 {
-    if ( buzzTim == &BUZZ_TIM && buzzTimChannel == BUZZ_TIM_CHANNEL )
+if ( buzzTim == &BUZZ_TIM && buzzTimChannel == BUZZ_TIM_CHANNEL )
     {
-        HAL_TIM_PWM_Stop_called_correctly = true;
+    HAL_TIM_PWM_Stop_called_correctly = true;
     }
 
-    return mocked_returns[cur_return++];
-}
+return mocked_returns[cur_return++];
+} /* HAL_TIM_PWM_Stop */
+
 
 void HAL_Delay
     (
     unsigned int timeToDelay
     )
-{
-    
-    delayCalls[delayCallCount] = timeToDelay;
-    delayCallCount++;
-
-}
+{   
+delayCalls[delayCallCount] = timeToDelay;
+delayCallCount++;
+} /* HAL_Delay */
 
