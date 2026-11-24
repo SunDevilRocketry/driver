@@ -233,7 +233,7 @@ printf("\nUnit Tests: buzzer_multi_beeps\n");
 /* Step: Set up test vectors (inputs, expected) */
 struct TEST_CASE inputs[NUM_CASES_buzzer_multi_beeps] =
 	{
-		/* { BUZZ_DURATION, WAIT_DURATION, HAL_STATUS_1_TO_RETURN, HAL_STATUS_2_TO_RETURN, HAL_STATUS_3_TO_RETURN }*/
+		/* { BUZZ_DURATION, WAIT_DURATION, HAL_STATUS_1_TO_RETURN, HAL_STATUS_2_TO_RETURN, HAL_STATUS_3_TO_RETURN, HAL_STATUS_4_TO_RETURN }*/
 		{300, 50, HAL_OK, HAL_OK, HAL_OK, HAL_OK},
 		{300, 50, HAL_OK, HAL_OK, HAL_OK, HAL_ERROR},
 
