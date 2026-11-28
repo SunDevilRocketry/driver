@@ -50,6 +50,24 @@ cur_return = 0;
 delayCallCount = 0;
 } /* MOCK_HAL_Setup */
 
+/* Reset mock HAL setup */
+void MOCK_HAL_Reset
+    (
+        void
+    )
+{
+HAL_TIM_PWM_Start_called_correctly = false;
+HAL_TIM_PWM_Stop_called_correctly = false;
+for ( int i = 0; i<5; i++ )
+	{
+	delayCalls[i] = -1;
+	}
+for ( int i = 0; i<4; i++ )
+    {
+    mocked_returns[i] = HAL_OK;
+    }
+
+} /* MOCK_HAL_Reset */
 
 HAL_StatusTypeDef HAL_TIM_PWM_Start
     (

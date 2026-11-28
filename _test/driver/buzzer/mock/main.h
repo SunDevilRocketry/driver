@@ -28,6 +28,11 @@ void MOCK_HAL_Setup
     HAL_StatusTypeDef status4ToReturn
     );
     
+void MOCK_HAL_Reset
+    (
+        void
+    );
+    
 HAL_StatusTypeDef HAL_TIM_PWM_Start
     (
     TIM_HandleTypeDef* buzzTim,

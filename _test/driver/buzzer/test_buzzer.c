@@ -44,23 +44,23 @@ TIM_HandleTypeDef htim4;
 Structs
 ------------------------------------------------------------------------------*/
 
-struct TEST_CASE
-{
+typedef struct TEST_CASE
+	{
 	int buzz_duration;
 	int wait_duration;
 	HAL_StatusTypeDef status1;
 	HAL_StatusTypeDef status2;
 	HAL_StatusTypeDef status3;
 	HAL_StatusTypeDef status4;
-} TEST_CASE;
-struct RESULT
-{
+	} TEST_CASE;
+typedef struct RESULT
+	{
 	BUZZ_STATUS status;
 	bool HAL_TIM_PWM_Start_called_correctly;
 	bool HAL_TIM_PWM_Stop_called_correctly;
 	int delayCalls[5];
 	int numberOfDelayCalls;
-} RESULT;
+	} RESULT;
 
 /*------------------------------------------------------------------------------
 Procedures: Test Helpers
@@ -73,17 +73,17 @@ Procedures: Test Helpers
  * 
  * @return The results of the test
  */
-struct RESULT test_buzzer_beep_helper
-(
-	struct TEST_CASE input
-)
+RESULT test_buzzer_beep_helper
+	(
+	TEST_CASE input
+	)
 {
 /* Set the results the mock HAL should return */
 MOCK_HAL_Setup(input.status1, input.status2, HAL_OK, HAL_OK );
 
 BUZZ_STATUS buzz_result = buzzer_beep(input.buzz_duration);
 
-struct RESULT results;
+RESULT results;
 results.status = buzz_result;
 results.HAL_TIM_PWM_Start_called_correctly = HAL_TIM_PWM_Start_called_correctly;
 results.HAL_TIM_PWM_Stop_called_correctly = HAL_TIM_PWM_Stop_called_correctly;
@@ -93,12 +93,7 @@ for ( int i = 0; i<5; i++ )
 	}
 
 /* Reset values set by HAL mocks */
-HAL_TIM_PWM_Start_called_correctly = false;
-HAL_TIM_PWM_Stop_called_correctly = false;
-for ( int i = 0; i<5; i++ )
-	{
-	delayCalls[i] = -1;
-	}
+MOCK_HAL_Reset();
 
 return results;
 } /* test_buzzer_beep_helper */
@@ -111,17 +106,17 @@ return results;
  * 
  * @return The results of the test
  */
-struct RESULT test_buzzer_multi_beeps_helper
-(
-	struct TEST_CASE input
-)
+RESULT test_buzzer_multi_beeps_helper
+	(
+	TEST_CASE input
+	)
 {
 /* Set the results the mock HAL should return */
 MOCK_HAL_Setup(input.status1, input.status2, input.status3, input.status4 );
 
 BUZZ_STATUS buzz_result = buzzer_multi_beeps(input.buzz_duration, input.wait_duration, 2);
 
-struct RESULT results;
+RESULT results;
 results.status = buzz_result;
 results.HAL_TIM_PWM_Start_called_correctly = HAL_TIM_PWM_Start_called_correctly;
 results.HAL_TIM_PWM_Stop_called_correctly = HAL_TIM_PWM_Stop_called_correctly;
@@ -132,12 +127,7 @@ for ( int i = 0; i<5; i++ )
 	}
 
 /* Reset values set by HAL mocks */
-HAL_TIM_PWM_Start_called_correctly = false;
-HAL_TIM_PWM_Stop_called_correctly = false;
-for ( int i = 0; i<5; i++ )
-	{
-	delayCalls[i] = -1;
-	}
+MOCK_HAL_Reset();
 
 return results;
 } /* test_buzzer_multi_beeps_helper */
@@ -151,16 +141,16 @@ Procedures: Tests // Define the tests used here
  * @brief Test the buzzer_beep function for proper HAL calls
  */
 void test_buzzer_beep
-(
+	(
 	void
-)
+	)
 {
 /* Step: Set up test */
 #define NUM_CASES_BUZZER_BEEP 3
 printf("\nUnit Tests: buzzer_beep\n");
 
 /* Step: Set up test vectors (inputs, expected) */
-struct TEST_CASE inputs[NUM_CASES_BUZZER_BEEP] =
+TEST_CASE inputs[NUM_CASES_BUZZER_BEEP] =
 	{
 		/* { BUZZ_DURATION, WAIT_DURATION, HAL_STATUS_1_TO_RETURN, HAL_STATUS_2_TO_RETURN, HAL_STATUS_3_TO_RETURN, HAL_STATUS_4_TO_RETURN }*/
 		/* Note: the third and fourth HAL return status and the WAIT_DURATION are irrelevant for the buzzer_beep tests, they are used for the buzzer_multi_beeps tests */
@@ -170,7 +160,7 @@ struct TEST_CASE inputs[NUM_CASES_BUZZER_BEEP] =
 
 	};
 
-struct RESULT expected[NUM_CASES_BUZZER_BEEP] =
+RESULT expected[NUM_CASES_BUZZER_BEEP] =
 	{
 		/* { BUZZ_RESULT, HAL_TIM_PWM_Start_called_correctly, HAL_TIM_PWM_Stop_called_correctly, delayCalls }*/
 		{BUZZ_OK, true, true, { 500, -1, -1, -1, -1} },
@@ -183,7 +173,7 @@ for ( int test_num = 0; test_num < NUM_CASES_BUZZER_BEEP; test_num++ )
 	{
 
 	/* Call function under test*/
-	struct RESULT testResult = test_buzzer_beep_helper(inputs[test_num]);
+	RESULT testResult = test_buzzer_beep_helper(inputs[test_num]);
 	/* Check results*/
 
 	TEST_ASSERT_EQ_SINT("Test that the returned BUZZ_STATUS equals the expected", testResult.status, expected[test_num].status);
@@ -214,7 +204,7 @@ for ( int test_num = 0; test_num < NUM_CASES_BUZZER_BEEP; test_num++ )
 		TEST_ASSERT_EQ_SINT("Test that HAL_Delay was called the expected number of times with the expected arguments", testResult.delayCalls[i], expected[test_num].delayCalls[i]);
 		}
 
-}
+	}
 } /* test_buzzer_multi_beeps */
 
 
@@ -222,36 +212,36 @@ for ( int test_num = 0; test_num < NUM_CASES_BUZZER_BEEP; test_num++ )
  * @brief Test the buzzer_multi_beeps function for proper HAL calls
  */
 void test_buzzer_multi_beeps
-(
+	(
 	void
-)
+	)
 {
 /* Step: Set up test */
 #define NUM_CASES_buzzer_multi_beeps 2
 printf("\nUnit Tests: buzzer_multi_beeps\n");
 
 /* Step: Set up test vectors (inputs, expected) */
-struct TEST_CASE inputs[NUM_CASES_buzzer_multi_beeps] =
+TEST_CASE inputs[NUM_CASES_buzzer_multi_beeps] =
 	{
 		/* { BUZZ_DURATION, WAIT_DURATION, HAL_STATUS_1_TO_RETURN, HAL_STATUS_2_TO_RETURN, HAL_STATUS_3_TO_RETURN, HAL_STATUS_4_TO_RETURN }*/
 		{300, 50, HAL_OK, HAL_OK, HAL_OK, HAL_OK},
 		{300, 50, HAL_OK, HAL_OK, HAL_OK, HAL_ERROR},
 
-};
+	};
 
-struct RESULT expected[NUM_CASES_buzzer_multi_beeps] =
+RESULT expected[NUM_CASES_buzzer_multi_beeps] =
 	{
 		/* { BUZZ_RESULT, HAL_TIM_PWM_Start_called_correctly, HAL_TIM_PWM_Stop_called_correctly, delayCalls }*/
 		{BUZZ_OK, true, true, { 300, 50, 300, 50, -1} },
-		{BUZZ_HAL_ERROR, true, true, { 300, 50, 300, -1, -1}}
+		{BUZZ_HAL_ERROR, true, true, { 300, 50, 300, -1, -1 } }
 	};
 
 /* Step: Execute tests */
-for (int test_num = 0; test_num < NUM_CASES_buzzer_multi_beeps; test_num++)
+for ( int test_num = 0; test_num < NUM_CASES_buzzer_multi_beeps; test_num++ )
 	{
 
 	/* Call function under test*/
-	struct RESULT testResult = test_buzzer_multi_beeps_helper(inputs[test_num]);
+	RESULT testResult = test_buzzer_multi_beeps_helper(inputs[test_num]);
 	/* Check results*/
 
 	TEST_ASSERT_EQ_SINT("Test that the returned BUZZ_STATUS equals the expected", testResult.status, expected[test_num].status);
@@ -273,9 +263,9 @@ for (int test_num = 0; test_num < NUM_CASES_buzzer_multi_beeps; test_num++)
  * @return Return status
  */
 int main
-(
+	(
 	void
-)
+	)
 {
 /*------------------------------------------------------------------------------
 Test Cases
